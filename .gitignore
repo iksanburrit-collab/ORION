@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.pyc
+
+# Entorno virtual
+.venv/
+venv/
+
+# VS Code
+.vscode/
+
+# Datos del usuario
+memoria.json
+config.json
+alias.json
+notas.json
+recordatorios.json
+
+# Backups
+backup/
