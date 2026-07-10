@@ -24,6 +24,13 @@ CATEGORIAS_APRENDIZAJE_MEMORIA = (
 )
 
 
+CATEGORIAS_HERRAMIENTAS_MEMORIA = (
+    "lenguajes",
+    "tecnologia",
+    "otros",
+)
+
+
 CATEGORIAS_GUSTOS = {
     "videojuegos": {
         "Minecraft",
@@ -122,6 +129,49 @@ CATEGORIAS_APRENDIZAJE = {
 }
 
 
+CATEGORIAS_HERRAMIENTAS = {
+    "lenguajes": CATEGORIAS_APRENDIZAJE["lenguajes"],
+    "tecnologia": {
+        "Linux",
+        "Windows",
+        "Git",
+        "VS Code",
+        "Excel",
+        "Blender",
+        "Unity",
+        "Godot",
+        "Docker",
+        "Arduino",
+        "Factorio",
+    },
+}
+
+
+RELACIONES_SEMANTICAS = {
+    "minecraft": ("videojuego",),
+    "factorio": ("videojuego", "automatizacion"),
+    "roblox": ("videojuego",),
+    "fortnite": ("videojuego",),
+    "valorant": ("videojuego",),
+    "terraria": ("videojuego",),
+    "stardew valley": ("videojuego",),
+    "python": ("lenguaje", "programacion"),
+    "javascript": ("lenguaje", "programacion"),
+    "java": ("lenguaje", "programacion"),
+    "c++": ("lenguaje", "programacion"),
+    "c#": ("lenguaje", "programacion"),
+    "html": ("lenguaje", "desarrollo web"),
+    "css": ("lenguaje", "desarrollo web"),
+    "sql": ("lenguaje", "bases de datos"),
+    "rust": ("lenguaje", "programacion"),
+    "go": ("lenguaje", "programacion"),
+    "git": ("control de versiones", "tecnologia"),
+    "docker": ("contenedores", "tecnologia"),
+    "linux": ("sistema operativo", "tecnologia"),
+    "windows": ("sistema operativo", "tecnologia"),
+}
+
+
 CATEGORIA_POR_CONTEXTO = {
     "videojuego": "videojuegos",
     "videojuegos": "videojuegos",
@@ -174,7 +224,17 @@ def detectar_conocimiento(texto: str) -> ConocimientoDetectado | None:
     if aprendizaje:
         return aprendizaje
 
-    return _detectar_gusto(texto_limpio, texto_normalizado)
+    gusto = _detectar_gusto(texto_limpio, texto_normalizado)
+
+    if gusto:
+        return gusto
+
+    herramienta = _detectar_herramienta(texto_limpio, texto_normalizado)
+
+    if herramienta:
+        return herramienta
+
+    return _detectar_objetivo(texto_limpio, texto_normalizado)
 
 
 def clasificar_gusto(
@@ -213,6 +273,50 @@ def clasificar_aprendizaje(valor: str) -> tuple[str, str]:
     return "otros", _formatear_desconocido(valor_limpio)
 
 
+def clasificar_herramienta(valor: str) -> tuple[str, str]:
+    valor_limpio = limpiar_valor(valor)
+    categoria_detectada = _clasificar_por_diccionario(
+        valor_limpio,
+        CATEGORIAS_HERRAMIENTAS
+    )
+
+    if categoria_detectada:
+        return categoria_detectada
+
+    return "otros", _formatear_desconocido(valor_limpio)
+
+
+def inferir_relaciones_semanticas(
+    valor: str,
+    categoria: str,
+    tipo: str
+) -> list[dict[str, str]]:
+    valor_normalizado = normalizar_para_busqueda(valor)
+    relaciones = []
+
+    for entidad, conceptos in RELACIONES_SEMANTICAS.items():
+        if valor_normalizado != entidad:
+            continue
+
+        for concepto in conceptos:
+            relaciones.append({
+                "origen": valor,
+                "relacion": "es_un",
+                "destino": concepto,
+                "fuente": tipo,
+            })
+
+    if categoria and categoria != "otros":
+        relaciones.append({
+            "origen": valor,
+            "relacion": "pertenece_a",
+            "destino": categoria,
+            "fuente": tipo,
+        })
+
+    return relaciones
+
+
 def normalizar_para_busqueda(texto: str) -> str:
     texto = texto.strip().lower()
     texto = unicodedata.normalize("NFD", texto)
@@ -241,6 +345,8 @@ def _detectar_gusto(
 ) -> ConocimientoDetectado | None:
     patrones_gusto = (
         r"^(?:a mi\s+)?me\s+(?:gusta|gustan|encanta|encantan|fascina|fascinan|interesa|interesan)\s+(?P<valor>.+)$",
+        r"^prefiero\s+(?P<valor>.+)$",
+        r"^mi\s+favorit[oa]\s+es\s+(?P<valor>.+)$",
         r"^mi\s+(?P<contexto>[a-z0-9\s]+?)\s+favorit[oa]\s+es\s+(?P<valor>.+)$",
     )
 
@@ -281,6 +387,7 @@ def _detectar_aprendizaje(
 ) -> ConocimientoDetectado | None:
     patrones_aprendizaje = (
         r"^(?:estoy|ando)\s+aprendiendo\s+(?P<valor>.+)$",
+        r"^quiero\s+aprender\s+(?P<valor>.+)$",
         r"^aprendo\s+(?P<valor>.+)$",
     )
 
@@ -298,6 +405,65 @@ def _detectar_aprendizaje(
 
         return ConocimientoDetectado(
             tipo="aprendizaje",
+            categoria=categoria,
+            valor=valor_canonico,
+        )
+
+    return None
+
+
+def _detectar_objetivo(
+    texto_limpio: str,
+    texto_normalizado: str
+) -> ConocimientoDetectado | None:
+    patrones_objetivo = (
+        r"^mi\s+objetivo\s+es\s+(?P<valor>.+)$",
+        r"^quiero\s+(?P<valor>.+)$",
+    )
+
+    for patron in patrones_objetivo:
+        coincidencia = re.match(patron, texto_normalizado)
+
+        if not coincidencia:
+            continue
+
+        valor = _extraer_valor_original(
+            texto_limpio,
+            coincidencia.group("valor")
+        )
+
+        return ConocimientoDetectado(
+            tipo="objetivo",
+            categoria="otros",
+            valor=_formatear_desconocido(valor),
+        )
+
+    return None
+
+
+def _detectar_herramienta(
+    texto_limpio: str,
+    texto_normalizado: str
+) -> ConocimientoDetectado | None:
+    patrones_herramienta = (
+        r"^trabajo\s+con\s+(?P<valor>.+)$",
+        r"^uso\s+(?P<valor>.+)$",
+    )
+
+    for patron in patrones_herramienta:
+        coincidencia = re.match(patron, texto_normalizado)
+
+        if not coincidencia:
+            continue
+
+        valor = _extraer_valor_original(
+            texto_limpio,
+            coincidencia.group("valor")
+        )
+        categoria, valor_canonico = clasificar_herramienta(valor)
+
+        return ConocimientoDetectado(
+            tipo="herramienta",
             categoria=categoria,
             valor=valor_canonico,
         )

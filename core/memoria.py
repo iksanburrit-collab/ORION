@@ -6,14 +6,16 @@ from typing import Any
 from core.conocimiento import (
     CATEGORIAS_APRENDIZAJE_MEMORIA,
     CATEGORIAS_GUSTOS_MEMORIA,
+    CATEGORIAS_HERRAMIENTAS_MEMORIA,
     ConocimientoDetectado,
     detectar_conocimiento,
+    inferir_relaciones_semanticas,
 )
 from utilidades.archivos import guardar_json
 
 
 MEMORIA_ARCHIVO = "memoria.json"
-VERSION_MEMORIA = 3
+VERSION_MEMORIA = 4
 
 
 def inicializar_memoria(memoria: dict[str, Any] | None) -> dict[str, Any]:
@@ -69,6 +71,16 @@ def aprender(
             conocimiento.categoria,
             conocimiento.valor
         )
+    elif conocimiento.tipo == "objetivo":
+        registrar_objetivo(memoria, conocimiento.valor)
+    elif conocimiento.tipo == "herramienta":
+        registrar_herramienta(
+            memoria,
+            conocimiento.categoria,
+            conocimiento.valor
+        )
+
+    registrar_conocimiento_semantico(memoria, conocimiento)
 
     memoria["contexto"]["ultimo_aprendizaje"] = {
         "tipo": conocimiento.tipo,
@@ -109,6 +121,59 @@ def registrar_aprendizaje(
 
     if isinstance(aprendizaje[categoria], list):
         _agregar_unico(aprendizaje[categoria], valor)
+
+
+def registrar_objetivo(
+    memoria: dict[str, Any],
+    valor: str
+) -> None:
+
+    _agregar_unico(memoria["usuario"]["objetivos"], valor)
+
+
+def registrar_herramienta(
+    memoria: dict[str, Any],
+    categoria: str,
+    valor: str
+) -> None:
+
+    herramientas = memoria["usuario"]["herramientas"]
+
+    if categoria not in herramientas:
+        categoria = "otros"
+
+    _agregar_unico(herramientas[categoria], valor)
+
+
+def registrar_conocimiento_semantico(
+    memoria: dict[str, Any],
+    conocimiento: ConocimientoDetectado
+) -> None:
+
+    semantica = memoria["semantica"]
+    entidades = semantica["entidades"]
+    entidad = entidades.setdefault(
+        conocimiento.valor,
+        {
+            "nombre": conocimiento.valor,
+            "tipos": [],
+            "categorias": [],
+            "fuentes": [],
+        }
+    )
+
+    _agregar_unico(entidad["tipos"], conocimiento.tipo)
+    _agregar_unico(entidad["categorias"], conocimiento.categoria)
+    _agregar_unico(entidad["fuentes"], "aprendizaje_usuario")
+
+    relaciones = inferir_relaciones_semanticas(
+        conocimiento.valor,
+        conocimiento.categoria,
+        conocimiento.tipo
+    )
+
+    for relacion in relaciones:
+        _agregar_relacion_unica(semantica["relaciones"], relacion)
 
 
 def guardar_contexto(
@@ -214,6 +279,10 @@ def _crear_estructura_base() -> dict[str, Any]:
             "preferencias": {},
             "habilidades": [],
             "objetivos": [],
+            "herramientas": {
+                categoria: []
+                for categoria in CATEGORIAS_HERRAMIENTAS_MEMORIA
+            },
         },
         "proyectos": {},
         "aprendizaje": {
@@ -225,6 +294,10 @@ def _crear_estructura_base() -> dict[str, Any]:
             "ultimo_contexto": "",
         },
         "historial": [],
+        "semantica": {
+            "entidades": {},
+            "relaciones": [],
+        },
         "sistema": {
             "version_memoria": VERSION_MEMORIA,
         },
@@ -251,6 +324,10 @@ def _asegurar_usuario(memoria: dict[str, Any]) -> None:
     _asegurar_diccionario(usuario, "preferencias")
     _asegurar_lista(usuario, "habilidades")
     _asegurar_lista(usuario, "objetivos")
+    herramientas = _asegurar_diccionario(usuario, "herramientas")
+
+    for categoria in CATEGORIAS_HERRAMIENTAS_MEMORIA:
+        _asegurar_lista(herramientas, categoria)
 
 
 def _asegurar_raiz(memoria: dict[str, Any]) -> None:
@@ -269,6 +346,9 @@ def _asegurar_raiz(memoria: dict[str, Any]) -> None:
         contexto.setdefault(clave, valor)
 
     _asegurar_lista(memoria, "historial")
+    semantica = _asegurar_diccionario(memoria, "semantica")
+    _asegurar_diccionario(semantica, "entidades")
+    _asegurar_lista(semantica, "relaciones")
     sistema = _asegurar_diccionario(memoria, "sistema")
     version_actual = sistema.get("version_memoria", 0)
 
@@ -323,6 +403,7 @@ def _migrar_memoria_legacy(memoria: dict[str, Any]) -> None:
                     conocimiento.categoria,
                     conocimiento.valor
                 )
+                registrar_conocimiento_semantico(memoria, conocimiento)
 
 
 def _sincronizar_compatibilidad(memoria: dict[str, Any]) -> None:
@@ -394,6 +475,33 @@ def _agregar_unico(lista: list[str], valor: str) -> None:
 
     if valor.strip().lower() not in valores_normalizados:
         lista.append(valor)
+
+
+def _agregar_relacion_unica(
+    relaciones: list[dict[str, str]],
+    relacion: dict[str, str]
+) -> None:
+
+    clave = (
+        relacion.get("origen", "").strip().lower(),
+        relacion.get("relacion", "").strip().lower(),
+        relacion.get("destino", "").strip().lower(),
+    )
+
+    for existente in relaciones:
+        if not isinstance(existente, dict):
+            continue
+
+        clave_existente = (
+            str(existente.get("origen", "")).strip().lower(),
+            str(existente.get("relacion", "")).strip().lower(),
+            str(existente.get("destino", "")).strip().lower(),
+        )
+
+        if clave_existente == clave:
+            return
+
+    relaciones.append(relacion)
 
 
 def _formatear_gusto_recordado(categoria: str, valor: str) -> str:
