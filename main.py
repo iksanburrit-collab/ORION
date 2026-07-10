@@ -4,6 +4,7 @@ from utilidades.archivos import asegurar_json, cargar, guardar_json
 from utilidades.fechas import calcular_edad, fecha_actual, hora_actual
 from utilidades.texto import normalizar_comando
 from core.intenciones import detectar_intencion
+from core.cerebro import procesar 
 from core.memoria import (
     actualizar_perfil,
     agregar_historial,
@@ -89,10 +90,13 @@ while True:
     edad = calcular_edad(
         fecha_nacimiento
     )
-
-    intencion = detectar_intencion(
-        comando
+    resultado = procesar(
+    comando,
+    memoria,
+    config
     )
+    intencion = resultado["intencion"]
+    
 
     if intencion == "saludo":
 
