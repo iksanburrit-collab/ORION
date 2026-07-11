@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import random
 from typing import Any, Callable
-
+from core.handlers.notas import procesar_notas
 from comandos.calculadora import ejecutar_calculadora
 from comandos.navegador import navegador_inteligente
 from comandos.sistema import mostrar_ayuda, mostrar_perfil
@@ -23,7 +23,6 @@ from core.personalidad import responder_personalidad
 from utilidades.fechas import calcular_edad, fecha_actual, hora_actual
 
 
-InputFunc = Callable[[str], str]
 GuardarFunc = Callable[[], None]
 
 
@@ -32,7 +31,9 @@ class ResultadoCerebro:
     texto: str
     intencion: str
     accion: str = ""
+    respuesta: str = ""
     salir: bool = False
+    solicitud: str | None = None
     conocimiento: Any | None = None
 
     def como_dict(self) -> dict[str, Any]:
@@ -40,7 +41,9 @@ class ResultadoCerebro:
             "texto": self.texto,
             "intencion": self.intencion,
             "accion": self.accion,
+            "respuesta": self.respuesta,
             "salir": self.salir,
+            "solicitud": self.solicitud,
             "conocimiento": self.conocimiento,
         }
 
@@ -55,7 +58,6 @@ def procesar(
     guardar_notas: GuardarFunc | None = None,
     guardar_alias: GuardarFunc | None = None,
     guardar_config: GuardarFunc | None = None,
-    input_func: InputFunc = input,
 ) -> dict[str, Any]:
     """
     Punto central de decision de ORION.
@@ -90,7 +92,6 @@ def procesar(
         intencion,
         memoria,
         config,
-        input_func,
         resultado,
     ):
         return resultado.como_dict()
@@ -109,14 +110,57 @@ def procesar(
     ):
         return resultado.como_dict()
 
-    print(
-        random.choice([
-            "No entendí 🤔",
-            "Explícame diferente 😄",
-        ])
-    )
+    resultado.respuesta = random.choice([
+        "No entendí 🤔",
+        "Explícame diferente 😄",
+    ])
     resultado.accion = "desconocido"
     return resultado.como_dict()
+
+
+def completar_solicitud(
+    solicitud: str,
+    valor: str,
+    memoria: dict[str, Any],
+    config: dict[str, Any],
+) -> dict[str, Any]:
+    """Completa una solicitud que requiere datos adicionales del usuario."""
+    valor = valor.strip()
+
+    if not valor:
+        return ResultadoCerebro(
+            texto=valor,
+            intencion=solicitud,
+            accion="solicitud_invalida",
+            respuesta="El valor no puede estar vacío.",
+        ).como_dict()
+
+    if solicitud == "nombre":
+        actualizar_perfil(memoria, nombre=valor)
+        guardar_memoria(memoria)
+        return ResultadoCerebro(
+            texto=valor,
+            intencion="nombre",
+            accion="actualizar_nombre",
+            respuesta="Guardado 👍",
+        ).como_dict()
+
+    if solicitud == "fecha_nacimiento":
+        actualizar_perfil(memoria, fecha_nacimiento=valor)
+        guardar_memoria(memoria)
+        return ResultadoCerebro(
+            texto=valor,
+            intencion="cumple",
+            accion="actualizar_cumple",
+            respuesta="Guardado 👍",
+        ).como_dict()
+
+    return ResultadoCerebro(
+        texto=valor,
+        intencion=solicitud,
+        accion="solicitud_desconocida",
+        respuesta="No pude completar esa solicitud.",
+    ).como_dict()
 
 
 def _registrar_entrada(
@@ -135,7 +179,6 @@ def _resolver_intencion(
     intencion: str,
     memoria: dict[str, Any],
     config: dict[str, Any],
-    input_func: InputFunc,
     resultado: ResultadoCerebro,
 ) -> bool:
     nombre = obtener_nombre(memoria)
@@ -153,19 +196,15 @@ def _resolver_intencion(
         return True
 
     if intencion == "nombre":
-        nombre = input_func("Tu nombre: ")
-        actualizar_perfil(memoria, nombre=nombre)
-        guardar_memoria(memoria)
-        responder_personalidad("Guardado 👍", config)
-        resultado.accion = "actualizar_nombre"
+        resultado.respuesta = "Escribe tu nombre:"
+        resultado.solicitud = "nombre"
+        resultado.accion = "solicitar_nombre"
         return True
 
     if intencion == "cumple":
-        fecha_nacimiento = input_func("YYYY-MM-DD: ")
-        actualizar_perfil(memoria, fecha_nacimiento=fecha_nacimiento)
-        guardar_memoria(memoria)
-        responder_personalidad("Guardado 👍", config)
-        resultado.accion = "actualizar_cumple"
+        resultado.respuesta = "Escribe tu fecha de nacimiento (YYYY-MM-DD):"
+        resultado.solicitud = "fecha_nacimiento"
+        resultado.accion = "solicitar_cumple"
         return True
 
     if intencion == "perfil":
@@ -222,7 +261,7 @@ def _resolver_intencion(
         return True
 
     if intencion == "salir":
-        print("Apagando ORION 👋")
+        resultado.respuesta = "Apagando ORION 👋"
         resultado.accion = "salir"
         resultado.salir = True
         return True
@@ -242,31 +281,17 @@ def _resolver_comando_directo(
     guardar_config: GuardarFunc | None,
     resultado: ResultadoCerebro,
 ) -> bool:
-    if texto.startswith("recuerda "):
-        nota = texto.replace("recuerda ", "", 1)
-        notas.append(nota)
-        _guardar(guardar_notas)
-        responder_personalidad("Nota guardada 👍", config)
-        resultado.accion = "guardar_nota"
+    
+    procesado, accion, respuesta = procesar_notas(
+        texto,
+        notas,
+        guardar_notas=guardar_notas,
+    )
+    if procesado:
+        resultado.accion = accion
+        resultado.respuesta = respuesta
         return True
-
-    if texto == "notas":
-        if len(notas) == 0:
-            responder_personalidad("No hay notas", config)
-        else:
-            print("\nNOTAS\n")
-            for indice, nota in enumerate(notas, start=1):
-                print(f"{indice}. {nota}")
-        resultado.accion = "listar_notas"
-        return True
-
-    if texto == "borrar notas":
-        notas.clear()
-        _guardar(guardar_notas)
-        responder_personalidad("Notas eliminadas", config)
-        resultado.accion = "borrar_notas"
-        return True
-
+    
     if texto.startswith("aprende:"):
         _guardar_alias(texto, alias, config, guardar_alias)
         resultado.accion = "guardar_alias"
@@ -278,12 +303,14 @@ def _resolver_comando_directo(
         return True
 
     if texto.startswith("modo "):
-        _cambiar_modo(texto, config, guardar_config)
+        respuesta_modo = _cambiar_modo(texto, config, guardar_config)
+        if respuesta_modo:
+            resultado.respuesta = respuesta_modo
         resultado.accion = "cambiar_modo"
         return True
 
     if texto == "modo":
-        print(f"Modo actual: {config['modo']}")
+        resultado.respuesta = f"Modo actual: {config['modo']}"
         resultado.accion = "mostrar_modo"
         return True
 
@@ -306,7 +333,9 @@ def _resolver_comando_directo(
         return True
 
     if "historial" in texto:
-        _mostrar_historial(memoria, config)
+        respuesta_historial = _mostrar_historial(memoria, config)
+        if respuesta_historial:
+            resultado.respuesta = respuesta_historial
         resultado.accion = "mostrar_historial"
         return True
 
@@ -333,7 +362,7 @@ def _cambiar_modo(
     texto: str,
     config: dict[str, Any],
     guardar_config: GuardarFunc | None
-) -> None:
+) -> str | None:
     nuevo = texto.replace("modo ", "", 1)
     modos = ["normal", "ironman", "serio", "chill"]
 
@@ -343,8 +372,7 @@ def _cambiar_modo(
         responder_personalidad(f"Modo {nuevo} activado", config)
         return
 
-    print("Modos:")
-    print(modos)
+    return "Modos disponibles: " + ", ".join(modos)
 
 
 def _recordar_ultimo_comando(
@@ -376,16 +404,13 @@ def _recordar_gusto(
 def _mostrar_historial(
     memoria: dict[str, Any],
     config: dict[str, Any]
-) -> None:
+) -> str:
     historial = memoria["historial"]
 
     if len(historial) == 0:
-        responder_personalidad("No tengo historial", config)
-        return
+        return "No tengo historial"
 
-    print()
-    for entrada in historial[-10:]:
-        print("-", entrada)
+    return "\n".join(f"- {entrada}" for entrada in historial[-10:])
 
 
 def _guardar(guardar_func: GuardarFunc | None) -> None:

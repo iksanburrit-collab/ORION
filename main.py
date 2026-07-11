@@ -1,6 +1,6 @@
 import sys
 
-from core.cerebro import procesar
+from core.cerebro import completar_solicitud, procesar
 from core.memoria import guardar_memoria, inicializar_memoria
 from utilidades.archivos import asegurar_json, cargar, guardar_json
 from utilidades.texto import normalizar_comando
@@ -49,6 +49,21 @@ while True:
         guardar_alias=guardar_alias,
         guardar_config=guardar_config,
     )
+
+    if resultado.get("respuesta"):
+        print(resultado["respuesta"])
+
+    solicitud = resultado.get("solicitud")
+    if solicitud:
+        valor = input("> ")
+        resultado_solicitud = completar_solicitud(
+            solicitud,
+            valor,
+            memoria,
+            config,
+        )
+        if resultado_solicitud.get("respuesta"):
+            print(resultado_solicitud["respuesta"])
 
     if resultado.get("salir"):
         break
