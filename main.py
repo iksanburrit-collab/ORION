@@ -50,10 +50,10 @@ while True:
         guardar_config=guardar_config,
     )
 
-    if resultado.get("respuesta"):
-        print(resultado["respuesta"])
+    if resultado.respuesta:
+        print(resultado.respuesta)
 
-    solicitud = resultado.get("solicitud")
+    solicitud = resultado.solicitud
     if solicitud:
         valor = input("> ")
         resultado_solicitud = completar_solicitud(
@@ -62,8 +62,8 @@ while True:
             memoria,
             config,
         )
-        if resultado_solicitud.get("respuesta"):
-            print(resultado_solicitud["respuesta"])
+        if resultado_solicitud.respuesta:
+            print(resultado_solicitud.respuesta)
 
-    if resultado.get("salir"):
+    if resultado.salir:
         break

@@ -1,6 +1,5 @@
-﻿def mostrar_ayuda():
-
-    print("""
+def mostrar_ayuda():
+    return """
                
 hola
 nombre
@@ -14,12 +13,11 @@ youtube
 busca
 version
 salir
-""")
+"""
 
 
 def mostrar_perfil(nombre, edad):
-
-    print(f"""
+    return f"""
 
 Nombre:
 {nombre}
@@ -27,4 +25,4 @@ Nombre:
 Edad:
 {edad}
 
-""")
+"""

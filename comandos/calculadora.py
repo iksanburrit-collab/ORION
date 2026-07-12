@@ -1,11 +1,8 @@
-﻿def ejecutar_calculadora(comando):
-
+def ejecutar_calculadora(comando):
     try:
-
         t = comando
 
         if "raiz" in t:
-
             n = float(
                 t.replace(
                     "raiz",
@@ -14,46 +11,23 @@
             )
 
             if n < 0:
+                return "No permitido 😅"
 
-                print(
-                    "No permitido 😅"
-                )
+            return f"🧮 {n**0.5}"
 
-            else:
-
-                print(
-                    f"🧮 {n**0.5}"
-                )
-
-        elif "pot" in t:
-
+        if "pot" in t:
             p = t.split()
+            return f"🧮 {float(p[1])**float(p[2])}"
 
-            print(
-                f"🧮 {float(p[1])**float(p[2])}"
-            )
-
-        else:
-
-            t = t.replace(
-                "^",
-                "**"
-            )
-
-            if "/0" in t:
-
-                print(
-                    "No se puede dividir entre 0 😅"
-                )
-
-            else:
-
-                print(
-                    f"🧮 {eval(t)}"
-                )
-
-    except:
-
-        print(
-            "Operación inválida 😅"
+        t = t.replace(
+            "^",
+            "**"
         )
+
+        if "/0" in t:
+            return "No se puede dividir entre 0 😅"
+
+        return f"🧮 {eval(t)}"
+
+    except Exception:
+        return "Operación inválida 😅"
