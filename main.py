@@ -9,7 +9,7 @@ from utilidades.texto import normalizar_comando
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
-print("Iniciando ORION v1.8...")
+print("Iniciando ORION v2.0...")
 
 
 memoria = inicializar_memoria(cargar("memoria.json", {}))

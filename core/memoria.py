@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from datetime import datetime, timezone
 from typing import Any
 
 from core.conocimiento import (
@@ -8,14 +9,36 @@ from core.conocimiento import (
     CATEGORIAS_GUSTOS_MEMORIA,
     CATEGORIAS_HERRAMIENTAS_MEMORIA,
     ConocimientoDetectado,
+    clasificar_aprendizaje,
+    clasificar_gusto,
     detectar_conocimiento,
     inferir_relaciones_semanticas,
+    limpiar_valor,
+    normalizar_para_busqueda,
 )
 from utilidades.archivos import guardar_json
 
 
 MEMORIA_ARCHIVO = "memoria.json"
-VERSION_MEMORIA = 4
+VERSION_MEMORIA = 5
+MAXIMO_LARGO_RECUERDO = 80
+CONFIANZA_USUARIO = 1.0
+CONFIANZA_INFERENCIA = 0.65
+CONFIANZA_SISTEMA = 0.8
+INICIOS_BASURA = (
+    "que ",
+    "cual ",
+    "cuales ",
+    "como ",
+    "cuando ",
+    "donde ",
+    "olvida ",
+    "cambia ",
+    "ya no ",
+    "historial",
+    "salir",
+    "ayuda",
+)
 
 
 def inicializar_memoria(memoria: dict[str, Any] | None) -> dict[str, Any]:
@@ -27,6 +50,7 @@ def inicializar_memoria(memoria: dict[str, Any] | None) -> dict[str, Any]:
     _asegurar_usuario(memoria)
     _asegurar_raiz(memoria)
     _migrar_memoria_legacy(memoria)
+    _limpiar_memoria_funcional(memoria)
     _sincronizar_compatibilidad(memoria)
 
     return memoria
@@ -43,7 +67,9 @@ def guardar_memoria(
 def aprender(
     texto: str,
     memoria: dict[str, Any],
-    guardar: bool = True
+    guardar: bool = True,
+    fuente: str = "usuario",
+    confianza: float = CONFIANZA_USUARIO,
 ) -> ConocimientoDetectado | None:
 
     conocimiento = detectar_conocimiento(texto)
@@ -55,7 +81,9 @@ def aprender(
         registrar_gusto(
             memoria,
             conocimiento.categoria,
-            conocimiento.valor
+            conocimiento.valor,
+            fuente=fuente,
+            confianza=min(confianza, conocimiento.confianza),
         )
 
         if conocimiento.clave_preferencia:
@@ -69,15 +97,24 @@ def aprender(
         registrar_aprendizaje(
             memoria,
             conocimiento.categoria,
-            conocimiento.valor
+            conocimiento.valor,
+            fuente=fuente,
+            confianza=confianza,
         )
     elif conocimiento.tipo == "objetivo":
-        registrar_objetivo(memoria, conocimiento.valor)
+        registrar_objetivo(
+            memoria,
+            conocimiento.valor,
+            fuente=fuente,
+            confianza=confianza,
+        )
     elif conocimiento.tipo == "herramienta":
         registrar_herramienta(
             memoria,
             conocimiento.categoria,
-            conocimiento.valor
+            conocimiento.valor,
+            fuente=fuente,
+            confianza=confianza,
         )
 
     registrar_conocimiento_semantico(memoria, conocimiento)
@@ -97,8 +134,15 @@ def aprender(
 def registrar_gusto(
     memoria: dict[str, Any],
     categoria: str,
-    valor: str
+    valor: str,
+    fuente: str = "usuario",
+    confianza: float = CONFIANZA_USUARIO,
 ) -> None:
+
+    valor = _limpiar_recuerdo(valor)
+
+    if not valor:
+        return
 
     gustos = memoria["usuario"]["gustos"]
 
@@ -106,13 +150,28 @@ def registrar_gusto(
         gustos[categoria] = []
 
     _agregar_unico(gustos[categoria], valor)
+    registrar_episodio(
+        memoria,
+        "gusto",
+        valor,
+        categoria=categoria,
+        fuente=fuente,
+        confianza=confianza,
+    )
 
 
 def registrar_aprendizaje(
     memoria: dict[str, Any],
     categoria: str,
-    valor: str
+    valor: str,
+    fuente: str = "usuario",
+    confianza: float = CONFIANZA_USUARIO,
 ) -> None:
+
+    valor = _limpiar_recuerdo(valor)
+
+    if not valor:
+        return
 
     aprendizaje = memoria["aprendizaje"]
 
@@ -121,21 +180,51 @@ def registrar_aprendizaje(
 
     if isinstance(aprendizaje[categoria], list):
         _agregar_unico(aprendizaje[categoria], valor)
+        registrar_episodio(
+            memoria,
+            "aprendizaje",
+            valor,
+            categoria=categoria,
+            fuente=fuente,
+            confianza=confianza,
+        )
 
 
 def registrar_objetivo(
     memoria: dict[str, Any],
-    valor: str
+    valor: str,
+    fuente: str = "usuario",
+    confianza: float = CONFIANZA_USUARIO,
 ) -> None:
 
+    valor = _limpiar_recuerdo(valor)
+
+    if not valor:
+        return
+
     _agregar_unico(memoria["usuario"]["objetivos"], valor)
+    registrar_episodio(
+        memoria,
+        "objetivo",
+        valor,
+        categoria="otros",
+        fuente=fuente,
+        confianza=confianza,
+    )
 
 
 def registrar_herramienta(
     memoria: dict[str, Any],
     categoria: str,
-    valor: str
+    valor: str,
+    fuente: str = "usuario",
+    confianza: float = CONFIANZA_USUARIO,
 ) -> None:
+
+    valor = _limpiar_recuerdo(valor)
+
+    if not valor:
+        return
 
     herramientas = memoria["usuario"]["herramientas"]
 
@@ -143,6 +232,14 @@ def registrar_herramienta(
         categoria = "otros"
 
     _agregar_unico(herramientas[categoria], valor)
+    registrar_episodio(
+        memoria,
+        "herramienta",
+        valor,
+        categoria=categoria,
+        fuente=fuente,
+        confianza=confianza,
+    )
 
 
 def registrar_conocimiento_semantico(
@@ -263,6 +360,267 @@ def obtener_ultimo_gusto(memoria: dict[str, Any]) -> str:
     return ""
 
 
+def consultar_resumen_personal(memoria: dict[str, Any]) -> str:
+    partes = []
+    perfil = memoria.get("perfil", {})
+    nombre = perfil.get("nombre", "")
+
+    if nombre:
+        partes.append(f"Tu nombre: {nombre}")
+
+    gustos = _formatear_mapa_listas(
+        memoria.get("usuario", {}).get("gustos", {})
+    )
+    aprendizaje = _formatear_mapa_listas(memoria.get("aprendizaje", {}))
+    objetivos = _formatear_lista(
+        memoria.get("usuario", {}).get("objetivos", [])
+    )
+    proyectos = consultar_proyectos(memoria)
+
+    if gustos:
+        partes.append(f"Gustos: {gustos}")
+
+    if aprendizaje:
+        partes.append(f"Aprendizaje: {aprendizaje}")
+
+    if objetivos:
+        partes.append(f"Objetivos: {objetivos}")
+
+    if proyectos != "No tengo proyectos guardados":
+        partes.append(f"Proyectos: {proyectos}")
+
+    if not partes:
+        return "Todavia no se mucho de ti"
+
+    return "\n".join(partes)
+
+
+def consultar_gustos(memoria: dict[str, Any], categoria: str) -> str:
+    gustos = memoria.get("usuario", {}).get("gustos", {})
+    valores = gustos.get(categoria, [])
+    lista = _formatear_lista(valores)
+
+    if lista:
+        return lista
+
+    return f"No tengo {categoria} guardados"
+
+
+def consultar_aprendizaje(memoria: dict[str, Any]) -> str:
+    aprendizaje = _formatear_mapa_listas(memoria.get("aprendizaje", {}))
+
+    if aprendizaje:
+        return aprendizaje
+
+    return "No tengo aprendizajes guardados"
+
+
+def consultar_objetivos(memoria: dict[str, Any]) -> str:
+    objetivos = _formatear_lista(
+        memoria.get("usuario", {}).get("objetivos", [])
+    )
+
+    if objetivos:
+        return objetivos
+
+    return "No tengo objetivos guardados"
+
+
+def consultar_proyectos(memoria: dict[str, Any]) -> str:
+    proyectos = memoria.get("proyectos", {})
+
+    if isinstance(proyectos, dict) and proyectos:
+        return ", ".join(str(nombre) for nombre in proyectos)
+
+    if isinstance(proyectos, list) and proyectos:
+        return _formatear_lista(proyectos)
+
+    return "No tengo proyectos guardados"
+
+
+def olvidar_gusto(memoria: dict[str, Any], valor: str) -> bool:
+    clasificacion = clasificar_gusto(valor)
+    categoria = clasificacion.categoria
+    valor_canonico = clasificacion.valor
+    candidatos = [valor, valor_canonico]
+    gustos = memoria.get("usuario", {}).get("gustos", {})
+    eliminado = False
+
+    categorias = [categoria] if categoria in gustos else list(gustos)
+
+    if categoria != "otros":
+        categorias.append("otros")
+
+    for categoria_actual in dict.fromkeys(categorias):
+        valores = gustos.get(categoria_actual)
+
+        if isinstance(valores, list):
+            eliminado = _eliminar_de_lista(valores, candidatos) or eliminado
+
+    _olvidar_preferencias(memoria, candidatos)
+    _olvidar_entidades(memoria, candidatos)
+
+    if eliminado:
+        registrar_episodio(
+            memoria,
+            "olvido",
+            valor,
+            categoria=categoria,
+            fuente="usuario",
+            confianza=CONFIANZA_USUARIO,
+        )
+
+    return eliminado
+
+
+def olvidar_aprendizaje(memoria: dict[str, Any], valor: str) -> bool:
+    categoria, valor_canonico = clasificar_aprendizaje(valor)
+    candidatos = [valor, valor_canonico]
+    aprendizaje = memoria.get("aprendizaje", {})
+    eliminado = False
+
+    categorias = [categoria] if categoria in aprendizaje else list(aprendizaje)
+
+    if categoria != "otros":
+        categorias.append("otros")
+
+    for categoria_actual in dict.fromkeys(categorias):
+        valores = aprendizaje.get(categoria_actual)
+
+        if isinstance(valores, list):
+            eliminado = _eliminar_de_lista(valores, candidatos) or eliminado
+
+    _olvidar_entidades(memoria, candidatos)
+
+    if eliminado:
+        registrar_episodio(
+            memoria,
+            "olvido",
+            valor,
+            categoria=categoria,
+            fuente="usuario",
+            confianza=CONFIANZA_USUARIO,
+        )
+
+    return eliminado
+
+
+def cambiar_objetivo(memoria: dict[str, Any], valor: str) -> bool:
+    valor_limpio = _limpiar_recuerdo(valor)
+
+    if not valor_limpio:
+        return False
+
+    memoria["usuario"]["objetivos"] = [valor_limpio]
+    registrar_episodio(
+        memoria,
+        "correccion",
+        f"Objetivo cambiado a {valor_limpio}",
+        categoria="objetivo",
+        fuente="usuario",
+        confianza=CONFIANZA_USUARIO,
+    )
+    return True
+
+
+def registrar_episodio(
+    memoria: dict[str, Any],
+    tipo: str,
+    contenido: str,
+    categoria: str = "otros",
+    fuente: str = "usuario",
+    confianza: float = CONFIANZA_USUARIO,
+    fecha: str | None = None,
+) -> bool:
+    contenido_limpio = _limpiar_recuerdo(contenido)
+
+    if not _es_episodio_valido(tipo, contenido_limpio):
+        return False
+
+    episodio = {
+        "tipo": tipo,
+        "contenido": contenido_limpio,
+        "categoria": categoria or "otros",
+        "fecha": fecha or _fecha_iso(),
+        "fuente": _normalizar_fuente(fuente),
+        "confianza": _normalizar_confianza(confianza),
+    }
+    episodica = _asegurar_diccionario(memoria, "episodica")
+    eventos = _asegurar_lista(episodica, "eventos")
+
+    if _episodio_duplicado(eventos, episodio):
+        return False
+
+    eventos.append(episodio)
+    return True
+
+
+def seleccionar_recuerdos_relevantes(
+    memoria: dict[str, Any],
+    consulta: str = "",
+    categoria: str = "",
+    limite: int = 5,
+) -> list[dict[str, Any]]:
+    eventos = memoria.get("episodica", {}).get("eventos", [])
+
+    if not isinstance(eventos, list) or limite <= 0:
+        return []
+
+    consulta_palabras = _palabras_clave(consulta)
+    categoria_normalizada = normalizar_para_busqueda(categoria)
+    puntuados = []
+
+    for posicion, evento in enumerate(eventos):
+        if not isinstance(evento, dict):
+            continue
+
+        puntuacion = _puntuar_episodio(
+            evento,
+            consulta_palabras,
+            categoria_normalizada,
+            posicion,
+            len(eventos),
+        )
+        puntuados.append((puntuacion, evento))
+
+    puntuados.sort(key=lambda item: item[0], reverse=True)
+    return [evento for _, evento in puntuados[:limite]]
+
+
+def construir_contexto_para_ia(
+    memoria: dict[str, Any],
+    consulta: str = "",
+    limite: int = 1200,
+) -> str:
+    if limite <= 0:
+        return ""
+
+    lineas_prioritarias = _lineas_perfil(memoria)
+    lineas_relacionadas = (
+        _lineas_gustos_relacionados(memoria, consulta)
+        + _lineas_aprendizaje_relacionado(memoria, consulta)
+        + _lineas_objetivos(memoria)
+        + _lineas_proyectos(memoria)
+    )
+    recuerdos = seleccionar_recuerdos_relevantes(
+        memoria,
+        consulta=consulta,
+        limite=6,
+    )
+    lineas_recuerdos = [
+        (
+            "Recuerdo: "
+            f"{evento.get('tipo', '')} - {evento.get('contenido', '')} "
+            f"({evento.get('fuente', 'usuario')}, "
+            f"confianza {evento.get('confianza', 1.0)})"
+        )
+        for evento in recuerdos
+    ]
+    lineas = lineas_prioritarias + lineas_relacionadas + lineas_recuerdos
+
+    return _aplicar_limite_contexto(lineas, limite)
+
+
 def _crear_estructura_base() -> dict[str, Any]:
 
     return {
@@ -297,6 +655,9 @@ def _crear_estructura_base() -> dict[str, Any]:
         "semantica": {
             "entidades": {},
             "relaciones": [],
+        },
+        "episodica": {
+            "eventos": [],
         },
         "sistema": {
             "version_memoria": VERSION_MEMORIA,
@@ -349,6 +710,8 @@ def _asegurar_raiz(memoria: dict[str, Any]) -> None:
     semantica = _asegurar_diccionario(memoria, "semantica")
     _asegurar_diccionario(semantica, "entidades")
     _asegurar_lista(semantica, "relaciones")
+    episodica = _asegurar_diccionario(memoria, "episodica")
+    _asegurar_lista(episodica, "eventos")
     sistema = _asegurar_diccionario(memoria, "sistema")
     version_actual = sistema.get("version_memoria", 0)
 
@@ -464,17 +827,448 @@ def _asegurar_lista(
 
 def _agregar_unico(lista: list[str], valor: str) -> None:
 
+    valor = _limpiar_recuerdo(valor)
+
     if not valor:
         return
 
     valores_normalizados = {
-        elemento.strip().lower()
+        normalizar_para_busqueda(elemento)
         for elemento in lista
         if isinstance(elemento, str)
     }
 
-    if valor.strip().lower() not in valores_normalizados:
+    if normalizar_para_busqueda(valor) not in valores_normalizados:
         lista.append(valor)
+
+
+def _limpiar_memoria_funcional(memoria: dict[str, Any]) -> None:
+    usuario = memoria.get("usuario", {})
+
+    for valores in usuario.get("gustos", {}).values():
+        if isinstance(valores, list):
+            _normalizar_lista_recuerdos(valores)
+
+    for valores in memoria.get("aprendizaje", {}).values():
+        if isinstance(valores, list):
+            _normalizar_lista_recuerdos(valores)
+
+    for valores in usuario.get("herramientas", {}).values():
+        if isinstance(valores, list):
+            _normalizar_lista_recuerdos(valores)
+
+    objetivos = usuario.get("objetivos")
+
+    if isinstance(objetivos, list):
+        _normalizar_lista_recuerdos(objetivos)
+
+    eventos = memoria.get("episodica", {}).get("eventos", [])
+
+    if isinstance(eventos, list):
+        _normalizar_episodios(eventos)
+
+
+def _normalizar_lista_recuerdos(lista: list[Any]) -> None:
+    vistos = set()
+    limpios = []
+
+    for valor in lista:
+        valor_limpio = _limpiar_recuerdo(valor)
+
+        if not valor_limpio:
+            continue
+
+        clave = normalizar_para_busqueda(valor_limpio)
+
+        if clave in vistos:
+            continue
+
+        vistos.add(clave)
+        limpios.append(valor_limpio)
+
+    lista[:] = limpios
+
+
+def _limpiar_recuerdo(valor: Any) -> str:
+    if not isinstance(valor, str):
+        return ""
+
+    valor_limpio = limpiar_valor(valor)
+    valor_normalizado = normalizar_para_busqueda(valor_limpio)
+
+    if not valor_limpio or len(valor_limpio) > MAXIMO_LARGO_RECUERDO:
+        return ""
+
+    if any(valor_normalizado.startswith(inicio) for inicio in INICIOS_BASURA):
+        return ""
+
+    return valor_limpio
+
+
+def _normalizar_episodios(eventos: list[Any]) -> None:
+    limpios = []
+
+    for evento in eventos:
+        if not isinstance(evento, dict):
+            continue
+
+        contenido = _limpiar_recuerdo(evento.get("contenido", ""))
+        tipo = str(evento.get("tipo", "")).strip().lower()
+
+        if not _es_episodio_valido(tipo, contenido):
+            continue
+
+        normalizado = {
+            "tipo": tipo,
+            "contenido": contenido,
+            "categoria": str(evento.get("categoria", "otros") or "otros"),
+            "fecha": str(evento.get("fecha") or _fecha_iso()),
+            "fuente": _normalizar_fuente(str(evento.get("fuente", "usuario"))),
+            "confianza": _normalizar_confianza(
+                evento.get("confianza", CONFIANZA_USUARIO)
+            ),
+        }
+
+        if not _episodio_duplicado(limpios, normalizado):
+            limpios.append(normalizado)
+
+    eventos[:] = limpios
+
+
+def _es_episodio_valido(tipo: str, contenido: str) -> bool:
+    tipos_validos = {
+        "gusto",
+        "aprendizaje",
+        "objetivo",
+        "proyecto",
+        "correccion",
+        "olvido",
+        "herramienta",
+    }
+
+    return tipo in tipos_validos and bool(contenido)
+
+
+def _episodio_duplicado(
+    eventos: list[dict[str, Any]],
+    episodio: dict[str, Any]
+) -> bool:
+    clave = _clave_episodio(episodio)
+
+    for existente in eventos:
+        if not isinstance(existente, dict):
+            continue
+
+        if _clave_episodio(existente) == clave:
+            return True
+
+    return False
+
+
+def _clave_episodio(episodio: dict[str, Any]) -> tuple[str, str, str]:
+    return (
+        normalizar_para_busqueda(str(episodio.get("tipo", ""))),
+        normalizar_para_busqueda(str(episodio.get("categoria", ""))),
+        normalizar_para_busqueda(str(episodio.get("contenido", ""))),
+    )
+
+
+def _normalizar_fuente(fuente: str) -> str:
+    fuente_normalizada = normalizar_para_busqueda(fuente)
+
+    if fuente_normalizada in {"usuario", "inferencia", "sistema"}:
+        return fuente_normalizada
+
+    return "sistema"
+
+
+def _normalizar_confianza(confianza: Any) -> float:
+    try:
+        valor = float(confianza)
+    except (TypeError, ValueError):
+        return CONFIANZA_SISTEMA
+
+    return max(0.0, min(1.0, valor))
+
+
+def _fecha_iso() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _palabras_clave(texto: str) -> set[str]:
+    texto_normalizado = normalizar_para_busqueda(texto)
+    palabras = set()
+
+    for palabra in texto_normalizado.split():
+        if len(palabra) <= 2:
+            continue
+
+        palabras.add(palabra)
+
+    return palabras
+
+
+def _puntuar_episodio(
+    evento: dict[str, Any],
+    consulta_palabras: set[str],
+    categoria: str,
+    posicion: int,
+    total: int,
+) -> float:
+    contenido = normalizar_para_busqueda(str(evento.get("contenido", "")))
+    categoria_evento = normalizar_para_busqueda(
+        str(evento.get("categoria", ""))
+    )
+    tipo = normalizar_para_busqueda(str(evento.get("tipo", "")))
+    texto_evento = f"{contenido} {categoria_evento} {tipo}"
+    coincidencias = sum(
+        1 for palabra in consulta_palabras if palabra in texto_evento
+    )
+    puntuacion = coincidencias * 4.0
+
+    if categoria and categoria == categoria_evento:
+        puntuacion += 3.0
+
+    if evento.get("fuente") == "usuario":
+        puntuacion += 2.0
+
+    puntuacion += _normalizar_confianza(evento.get("confianza", 0.0)) * 2.0
+    puntuacion += _puntuar_recencia(posicion, total)
+    return puntuacion
+
+
+def _puntuar_recencia(posicion: int, total: int) -> float:
+    if total <= 1:
+        return 1.0
+
+    return posicion / (total - 1)
+
+
+def _lineas_perfil(memoria: dict[str, Any]) -> list[str]:
+    perfil = memoria.get("perfil", {})
+    lineas = []
+
+    nombre = perfil.get("nombre")
+
+    if nombre:
+        lineas.append(f"Perfil: nombre {nombre}")
+
+    alias = perfil.get("alias")
+
+    if alias:
+        lineas.append(f"Alias: {alias}")
+
+    return lineas
+
+
+def _lineas_gustos_relacionados(
+    memoria: dict[str, Any],
+    consulta: str
+) -> list[str]:
+    gustos = memoria.get("usuario", {}).get("gustos", {})
+    return _lineas_mapa_relacionado("Gustos", gustos, consulta)
+
+
+def _lineas_aprendizaje_relacionado(
+    memoria: dict[str, Any],
+    consulta: str
+) -> list[str]:
+    aprendizaje = memoria.get("aprendizaje", {})
+    return _lineas_mapa_relacionado("Aprendizaje", aprendizaje, consulta)
+
+
+def _lineas_mapa_relacionado(
+    titulo: str,
+    datos: dict[str, Any],
+    consulta: str
+) -> list[str]:
+    if not isinstance(datos, dict):
+        return []
+
+    palabras = _palabras_clave(consulta)
+    lineas = []
+
+    for categoria, valores in datos.items():
+        if not isinstance(valores, list) or not valores:
+            continue
+
+        valores_filtrados = _filtrar_valores_relacionados(
+            valores,
+            str(categoria),
+            palabras,
+        )
+
+        if valores_filtrados:
+            lineas.append(
+                f"{titulo} {categoria}: {', '.join(valores_filtrados)}"
+            )
+
+    return lineas
+
+
+def _filtrar_valores_relacionados(
+    valores: list[Any],
+    categoria: str,
+    palabras: set[str]
+) -> list[str]:
+    limpios = [
+        str(valor)
+        for valor in valores
+        if isinstance(valor, str) and valor.strip()
+    ]
+
+    if not palabras:
+        return limpios[:5]
+
+    relacionados = []
+
+    for valor in limpios:
+        texto = normalizar_para_busqueda(f"{categoria} {valor}")
+
+        if any(palabra in texto for palabra in palabras):
+            relacionados.append(valor)
+
+    return relacionados[:5]
+
+
+def _lineas_objetivos(memoria: dict[str, Any]) -> list[str]:
+    objetivos = memoria.get("usuario", {}).get("objetivos", [])
+    texto = _formatear_lista(objetivos)
+
+    if texto:
+        return [f"Objetivos: {texto}"]
+
+    return []
+
+
+def _lineas_proyectos(memoria: dict[str, Any]) -> list[str]:
+    proyectos = consultar_proyectos(memoria)
+
+    if proyectos == "No tengo proyectos guardados":
+        return []
+
+    return [f"Proyectos: {proyectos}"]
+
+
+def _aplicar_limite_contexto(lineas: list[str], limite: int) -> str:
+    usadas = []
+    longitud = 0
+
+    for linea in lineas:
+        if not linea:
+            continue
+
+        extra = len(linea) + (1 if usadas else 0)
+
+        if longitud + extra > limite:
+            break
+
+        usadas.append(linea)
+        longitud += extra
+
+    return "\n".join(usadas)
+
+
+def _eliminar_de_lista(lista: list[str], candidatos: list[str]) -> bool:
+    claves = {
+        normalizar_para_busqueda(candidato)
+        for candidato in candidatos
+        if _limpiar_recuerdo(candidato)
+    }
+    longitud_inicial = len(lista)
+
+    lista[:] = [
+        valor
+        for valor in lista
+        if normalizar_para_busqueda(str(valor)) not in claves
+    ]
+
+    return len(lista) != longitud_inicial
+
+
+def _olvidar_preferencias(
+    memoria: dict[str, Any],
+    candidatos: list[str]
+) -> None:
+    preferencias = memoria.get("usuario", {}).get("preferencias", {})
+
+    if not isinstance(preferencias, dict):
+        return
+
+    claves = {
+        normalizar_para_busqueda(candidato)
+        for candidato in candidatos
+        if _limpiar_recuerdo(candidato)
+    }
+
+    for clave, valor in list(preferencias.items()):
+        if normalizar_para_busqueda(str(valor)) in claves:
+            preferencias.pop(clave, None)
+
+
+def _olvidar_entidades(
+    memoria: dict[str, Any],
+    candidatos: list[str]
+) -> None:
+    semantica = memoria.get("semantica", {})
+    entidades = semantica.get("entidades", {})
+
+    if not isinstance(entidades, dict):
+        return
+
+    claves = {
+        normalizar_para_busqueda(candidato)
+        for candidato in candidatos
+        if _limpiar_recuerdo(candidato)
+    }
+
+    for nombre in list(entidades):
+        if normalizar_para_busqueda(str(nombre)) in claves:
+            entidades.pop(nombre, None)
+
+    relaciones = semantica.get("relaciones", [])
+
+    if isinstance(relaciones, list):
+        relaciones[:] = [
+            relacion
+            for relacion in relaciones
+            if not (
+                isinstance(relacion, dict)
+                and (
+                    normalizar_para_busqueda(
+                        str(relacion.get("origen", ""))
+                    ) in claves
+                    or normalizar_para_busqueda(
+                        str(relacion.get("destino", ""))
+                    ) in claves
+                )
+            )
+        ]
+
+
+def _formatear_mapa_listas(datos: dict[str, Any]) -> str:
+    partes = []
+
+    for categoria, valores in datos.items():
+        if not isinstance(valores, list) or not valores:
+            continue
+
+        lista = _formatear_lista(valores)
+
+        if lista:
+            partes.append(f"{categoria}: {lista}")
+
+    return "; ".join(partes)
+
+
+def _formatear_lista(valores: list[Any]) -> str:
+    limpios = [
+        str(valor)
+        for valor in valores
+        if isinstance(valor, str) and valor.strip()
+    ]
+
+    return ", ".join(limpios)
 
 
 def _agregar_relacion_unica(

@@ -61,12 +61,6 @@ def procesar(
     guardar_alias: GuardarFunc | None = None,
     guardar_config: GuardarFunc | None = None,
 ) -> ResultadoCerebro:
-    """
-    Punto central de decision de ORION.
-
-    Toda entrada del usuario pasa por aqui: el cerebro registra contexto,
-    detecta intenciones y coordina los modulos que ejecutan acciones.
-    """
 
     notas = notas if notas is not None else []
     alias = alias if alias is not None else {}
@@ -74,6 +68,7 @@ def procesar(
 
     conocimiento = _registrar_entrada(texto, memoria)
     intencion = detectar_intencion(texto)
+
     resultado = ResultadoCerebro(
         texto=texto,
         intencion=intencion,
@@ -99,6 +94,38 @@ def procesar(
     ):
         return resultado
 
+    if conocimiento is not None:
+        resultado.accion = "aprendizaje"
+
+        if conocimiento.tipo == "gusto":
+            mensaje = (
+                f"Entendido. Recordaré que te gusta "
+                f"{conocimiento.valor}."
+            )
+
+        elif conocimiento.tipo == "aprendizaje":
+            mensaje = (
+                f"Entendido. Recordaré que estás aprendiendo "
+                f"{conocimiento.valor}."
+            )
+
+        elif conocimiento.tipo == "objetivo":
+            mensaje = (
+                f"Objetivo guardado: {conocimiento.valor}."
+            )
+
+        else:
+            mensaje = (
+                f"Información guardada: {conocimiento.valor}."
+            )
+
+        resultado.respuesta = responder_personalidad(
+            mensaje,
+            config,
+        )
+
+        return resultado
+
     if _resolver_intencion(
         texto,
         intencion,
@@ -112,9 +139,10 @@ def procesar(
         "No entendí 🤔",
         "Explícame diferente 😄",
     ])
-    resultado.accion = "desconocido"
-    return resultado
 
+    resultado.accion = "desconocido"
+
+    return resultado
 
 def completar_solicitud(
     solicitud: str,

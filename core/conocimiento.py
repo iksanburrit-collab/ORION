@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 import re
+from typing import Any
 import unicodedata
 
 
@@ -100,6 +101,171 @@ CATEGORIAS_GUSTOS = {
         "The Last of Us",
         "The Mandalorian",
     },
+}
+
+
+ALIAS_GUSTOS = {
+    "musica": "musica",
+    "música": "musica",
+    "canciones": "musica",
+    "rolas": "musica",
+    "comidas": "comida",
+    "comer": "comida",
+    "deporte": "deportes",
+    "deportes": "deportes",
+    "juego": "videojuegos",
+    "juegos": "videojuegos",
+    "videojuego": "videojuegos",
+    "videojuegos": "videojuegos",
+    "gaming": "videojuegos",
+    "pelicula": "peliculas",
+    "peliculas": "peliculas",
+    "serie": "series",
+}
+
+
+PALABRAS_CLAVE_GUSTOS = {
+    "videojuegos": {
+        "videojuego",
+        "videojuegos",
+        "juego",
+        "juegos",
+        "gaming",
+        "gamer",
+        "steam",
+        "consola",
+        "pc",
+        "sandbox",
+        "survival",
+        "shooter",
+        "rpg",
+        "moba",
+        "battle",
+        "royale",
+        "craft",
+        "factory",
+        "factorio",
+        "arena",
+        "breakout",
+        "simulador",
+        "automatizacion",
+        "automatización",
+    },
+    "deportes": {
+        "deporte",
+        "deportes",
+        "futbol",
+        "fútbol",
+        "voleibol",
+        "voley",
+        "volley",
+        "basquet",
+        "basket",
+        "tenis",
+        "natacion",
+        "natación",
+        "correr",
+        "ciclismo",
+        "box",
+        "boxeo",
+        "entrenar",
+    },
+    "comida": {
+        "comida",
+        "comidas",
+        "comer",
+        "pizza",
+        "pasta",
+        "taco",
+        "tacos",
+        "sushi",
+        "ramen",
+        "hamburguesa",
+        "sopa",
+        "ensalada",
+        "pollo",
+        "carne",
+        "arroz",
+        "queso",
+        "pan",
+        "postre",
+        "helado",
+    },
+    "musica": {
+        "musica",
+        "música",
+        "cancion",
+        "canción",
+        "canciones",
+        "rola",
+        "rolas",
+        "genero",
+        "género",
+        "banda",
+        "artista",
+        "album",
+        "álbum",
+        "rock",
+        "pop",
+        "rap",
+        "trap",
+        "reggaeton",
+        "jazz",
+        "metal",
+        "clasica",
+        "clásica",
+    },
+    "tecnologia": {
+        "tecnologia",
+        "tecnología",
+        "programacion",
+        "programación",
+        "codigo",
+        "código",
+        "software",
+        "hardware",
+        "linux",
+        "windows",
+        "python",
+        "javascript",
+        "git",
+        "vscode",
+        "vs code",
+        "docker",
+        "ia",
+        "inteligencia artificial",
+    },
+    "peliculas": {
+        "pelicula",
+        "peliculas",
+        "cine",
+        "film",
+        "saga",
+    },
+    "series": {
+        "serie",
+        "series",
+        "temporada",
+        "episodio",
+        "anime",
+    },
+}
+
+
+PATRONES_GUSTOS = {
+    "videojuegos": (
+        r"\b\w*factory\w*\b",
+        r"\b\w+craft\b",
+        r"\b\w+quest\b",
+        r"\b\w+vania\b",
+        r"\b\w+io\b",
+    ),
+    "comida": (
+        r"\b\w+(?:burger|pizza|sushi|taco|ramen)\b",
+    ),
+    "musica": (
+        r"\b\w+(?:core|wave|pop|rock|metal|rap|trap)\b",
+    ),
 }
 
 
@@ -213,6 +379,19 @@ class ConocimientoDetectado:
     categoria: str
     valor: str
     clave_preferencia: str | None = None
+    confianza: float = 1.0
+
+
+@dataclass(frozen=True)
+class ClasificacionGusto:
+    categoria: str
+    valor: str
+    confianza: float
+    razones: tuple[str, ...] = ()
+
+    def __iter__(self):
+        yield self.categoria
+        yield self.valor
 
 
 def detectar_conocimiento(texto: str) -> ConocimientoDetectado | None:
@@ -239,14 +418,30 @@ def detectar_conocimiento(texto: str) -> ConocimientoDetectado | None:
 
 def clasificar_gusto(
     valor: str,
-    categoria_contexto: str | None = None
-) -> tuple[str, str]:
+    texto_original: str = "",
+    categoria_contexto: str | None = None,
+) -> ClasificacionGusto:
     valor_limpio = limpiar_valor(valor)
 
+    if (
+        categoria_contexto is None
+        and texto_original in CATEGORIAS_GUSTOS_MEMORIA
+    ):
+        categoria_contexto = texto_original
+        texto_original = valor_limpio
+
+    texto_original = texto_original or valor_limpio
+    categoria_contexto = _normalizar_categoria_gusto(categoria_contexto)
+
     if categoria_contexto in CATEGORIAS_GUSTOS_MEMORIA:
-        return categoria_contexto, _canonizar_valor(
-            valor_limpio,
-            CATEGORIAS_GUSTOS.get(categoria_contexto, set())
+        return ClasificacionGusto(
+            categoria_contexto,
+            _canonizar_valor(
+                valor_limpio,
+                CATEGORIAS_GUSTOS.get(categoria_contexto, set()),
+            ),
+            1.0,
+            ("contexto_explicito",),
         )
 
     categoria_detectada = _clasificar_por_diccionario(
@@ -255,9 +450,122 @@ def clasificar_gusto(
     )
 
     if categoria_detectada:
-        return categoria_detectada
+        categoria, valor_canonico = categoria_detectada
+        return ClasificacionGusto(
+            categoria,
+            valor_canonico,
+            1.0,
+            ("entidad_conocida",),
+        )
 
-    return "otros", _formatear_desconocido(valor_limpio)
+    return _clasificar_gusto_por_reglas(valor_limpio, texto_original)
+
+
+def _clasificar_gusto_por_reglas(
+    valor: str,
+    texto_original: str,
+) -> ClasificacionGusto:
+    valor_normalizado = normalizar_para_busqueda(valor)
+    texto_normalizado = normalizar_para_busqueda(texto_original)
+    texto_combinado = f"{texto_normalizado} {valor_normalizado}".strip()
+    puntuaciones: dict[str, float] = {}
+    razones: dict[str, list[str]] = {}
+
+    def sumar(categoria: str, puntos: float, razon: str) -> None:
+        puntuaciones[categoria] = puntuaciones.get(categoria, 0.0) + puntos
+        razones.setdefault(categoria, []).append(razon)
+
+    for alias, categoria in ALIAS_GUSTOS.items():
+        alias_normalizado = normalizar_para_busqueda(alias)
+
+        if _contiene_termino(texto_combinado, alias_normalizado):
+            sumar(categoria, 1.2, f"alias:{alias_normalizado}")
+
+    for categoria, palabras in PALABRAS_CLAVE_GUSTOS.items():
+        for palabra in palabras:
+            palabra_normalizada = normalizar_para_busqueda(palabra)
+
+            if _contiene_termino(valor_normalizado, palabra_normalizada):
+                sumar(categoria, 1.1, f"valor:{palabra_normalizada}")
+            elif _contiene_termino(texto_normalizado, palabra_normalizada):
+                sumar(categoria, 0.7, f"contexto:{palabra_normalizada}")
+
+    for categoria, patrones in PATRONES_GUSTOS.items():
+        for patron in patrones:
+            if re.search(patron, valor_normalizado):
+                sumar(categoria, 1.05, f"patron:{patron}")
+
+    _sumar_por_contexto_frase(texto_normalizado, sumar)
+
+    if not puntuaciones:
+        return ClasificacionGusto(
+            "otros",
+            _formatear_desconocido(valor),
+            0.25,
+            ("sin_senales_suficientes",),
+        )
+
+    ordenadas = sorted(
+        puntuaciones.items(),
+        key=lambda item: item[1],
+        reverse=True,
+    )
+    categoria, puntuacion = ordenadas[0]
+    segunda = ordenadas[1][1] if len(ordenadas) > 1 else 0.0
+
+    if puntuacion < 1.0 or puntuacion - segunda < 0.35:
+        return ClasificacionGusto(
+            "otros",
+            _formatear_desconocido(valor),
+            min(0.5, puntuacion / 3.0),
+            tuple(razones.get(categoria, ("clasificacion_ambigua",))),
+        )
+
+    confianza = min(0.9, 0.45 + puntuacion / 4.0)
+    return ClasificacionGusto(
+        categoria,
+        _formatear_desconocido(valor),
+        confianza,
+        tuple(razones.get(categoria, ())),
+    )
+
+
+def _sumar_por_contexto_frase(
+    texto_normalizado: str,
+    sumar: Any,
+) -> None:
+    reglas = (
+        ("videojuegos", ("juego", "juegos", "videojuego", "videojuegos")),
+        ("deportes", ("deporte", "deportes", "jugar al", "practicar")),
+        ("comida", ("comer", "comida", "platillo", "postre")),
+        ("musica", ("escuchar", "musica", "cancion", "banda", "artista")),
+        ("tecnologia", ("programar", "codigo", "software", "tecnologia")),
+        ("peliculas", ("ver peliculas", "cine", "pelicula")),
+        ("series", ("ver series", "serie", "anime")),
+    )
+
+    for categoria, pistas in reglas:
+        for pista in pistas:
+            if _contiene_termino(texto_normalizado, pista):
+                sumar(categoria, 0.9, f"frase:{pista}")
+
+
+def _normalizar_categoria_gusto(categoria: str | None) -> str | None:
+    if not categoria:
+        return None
+
+    categoria_normalizada = normalizar_para_busqueda(categoria)
+    return ALIAS_GUSTOS.get(categoria_normalizada, categoria_normalizada)
+
+
+def _contiene_termino(texto: str, termino: str) -> bool:
+    if not texto or not termino:
+        return False
+
+    if " " in termino:
+        return termino in texto
+
+    return bool(re.search(rf"\b{re.escape(termino)}\b", texto))
 
 
 def clasificar_aprendizaje(valor: str) -> tuple[str, str]:
@@ -362,7 +670,13 @@ def _detectar_gusto(
         )
         contexto = coincidencia.groupdict().get("contexto")
         categoria_contexto = CATEGORIA_POR_CONTEXTO.get(contexto or "")
-        categoria, valor_canonico = clasificar_gusto(valor, categoria_contexto)
+        clasificacion = clasificar_gusto(
+            valor,
+            texto_limpio,
+            categoria_contexto,
+        )
+        categoria = clasificacion.categoria
+        valor_canonico = clasificacion.valor
         clave_preferencia = None
 
         if contexto:
@@ -376,6 +690,7 @@ def _detectar_gusto(
             categoria=categoria,
             valor=valor_canonico,
             clave_preferencia=clave_preferencia,
+            confianza=clasificacion.confianza,
         )
 
     return None
