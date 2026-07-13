@@ -3,8 +3,13 @@ __pycache__/
 *.pyc
 
 # Entorno virtual
+.env
+.env.*
 .venv/
 venv/
+*.key
+secrets.json
+config.local.json
 
 # VS Code
 .vscode/

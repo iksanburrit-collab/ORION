@@ -19,6 +19,7 @@ from core.memoria import (
     registrar_turno_conversacion,
 )
 from ia.prompts import construir_prompt_sistema
+from ia.proveedor import RespuestaProveedor
 
 
 class EstabilizacionMemoriaTests(unittest.TestCase):
@@ -30,12 +31,10 @@ class EstabilizacionMemoriaTests(unittest.TestCase):
             "modo": "normal",
             "ia": {
                 "activada": True,
-                "modelo": "qwen3:1.7b",
-                "timeout": 60,
-                "limite_contexto": 1200,
-                "max_turnos_conversacion": 3,
-                "longitud_respuesta": 500,
-                "keep_alive": "10m",
+                "proveedor": "nvidia",
+                "fallback_local": True,
+                "limite_contexto": 900,
+                "max_turnos": 3,
             },
         }
 
@@ -160,7 +159,11 @@ class EstabilizacionMemoriaTests(unittest.TestCase):
     @mock.patch("core.cerebro.generar_respuesta")
     def test_ollama_apagado_no_cierra_orion(self, generar):
         memoria = inicializar_memoria({})
-        generar.return_value = "No pude usar Ollama: no pude conectar."
+        generar.return_value = RespuestaProveedor(
+            "No pude usar IA en este momento.",
+            "ninguno",
+            error=True,
+        )
 
         resultado = procesar("conversemos", memoria, self.config)
 
@@ -171,7 +174,7 @@ class EstabilizacionMemoriaTests(unittest.TestCase):
     @mock.patch("core.cerebro.generar_respuesta")
     def test_memoria_personal_no_cambia_en_conversacion_libre(self, generar):
         memoria = inicializar_memoria({})
-        generar.return_value = "Respuesta libre"
+        generar.return_value = RespuestaProveedor("Respuesta libre", "nvidia")
         antes = copy.deepcopy(memoria["usuario"])
 
         procesar("dime algo interesante", memoria, self.config)

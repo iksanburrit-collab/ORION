@@ -58,9 +58,6 @@ def detectar_intencion(t):
     ):
         return "calc"
 
-    if "version" in t:
-        return "version"
-
     if "ayuda" in t:
         return "ayuda"
 

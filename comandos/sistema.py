@@ -11,7 +11,6 @@ fecha
 calc
 youtube
 busca
-version
 salir
 """
 

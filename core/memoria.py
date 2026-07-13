@@ -1387,7 +1387,11 @@ def _filtrar_valores_relacionados(
 
 
 def _lineas_objetivos(memoria: dict[str, Any]) -> list[str]:
-    objetivos = memoria.get("usuario", {}).get("objetivos", [])
+    objetivos = [
+        objetivo
+        for objetivo in memoria.get("usuario", {}).get("objetivos", [])
+        if isinstance(objetivo, str) and objetivo.strip()
+    ][:3]
     texto = _formatear_lista(objetivos)
 
     if texto:
@@ -1397,7 +1401,14 @@ def _lineas_objetivos(memoria: dict[str, Any]) -> list[str]:
 
 
 def _lineas_proyectos(memoria: dict[str, Any]) -> list[str]:
-    proyectos = consultar_proyectos(memoria)
+    proyectos_datos = memoria.get("proyectos", {})
+
+    if isinstance(proyectos_datos, dict) and proyectos_datos:
+        proyectos = ", ".join(str(nombre) for nombre in list(proyectos_datos)[:3])
+    elif isinstance(proyectos_datos, list) and proyectos_datos:
+        proyectos = _formatear_lista(proyectos_datos[:3])
+    else:
+        proyectos = "No tengo proyectos guardados"
 
     if proyectos == "No tengo proyectos guardados":
         return []

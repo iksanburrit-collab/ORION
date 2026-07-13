@@ -16,7 +16,6 @@ from core.memoria import (
     actualizar_perfil,
     agregar_historial,
     aprender,
-    construir_contexto_para_ia,
     guardar_contexto,
     guardar_memoria,
     obtener_historial_conversacion,
@@ -25,7 +24,7 @@ from core.memoria import (
     registrar_turno_conversacion,
 )
 from core.personalidad import responder_personalidad
-from ia.ollama import ERROR_OLLAMA, generar_respuesta
+from ia.proveedor import generar_respuesta, normalizar_config_ia
 from utilidades.fechas import calcular_edad, fecha_actual, hora_actual
 
 
@@ -41,6 +40,7 @@ class ResultadoCerebro:
     salir: bool = False
     solicitud: str | None = None
     conocimiento: Any | None = None
+    debug: dict[str, Any] | None = None
 
     def como_dict(self) -> dict[str, Any]:
         return {
@@ -51,6 +51,7 @@ class ResultadoCerebro:
             "salir": self.salir,
             "solicitud": self.solicitud,
             "conocimiento": self.conocimiento,
+            "debug": self.debug,
         }
 
 
@@ -220,82 +221,44 @@ def _resolver_ia(
     config: dict[str, Any],
     resultado: ResultadoCerebro,
 ) -> bool:
-    config_ia = _config_ia(config)
+    config_ia = normalizar_config_ia(config)
 
     if not config_ia["activada"]:
         return False
 
-    contexto = construir_contexto_para_ia(
-        memoria,
-        consulta=texto,
-        limite=config_ia["limite_contexto"],
-    )
     historial = obtener_historial_conversacion(
         memoria,
-        limite=config_ia["max_turnos_conversacion"],
+        limite=config_ia["max_turnos"],
     )
     respuesta = generar_respuesta(
         texto,
-        contexto=contexto,
+        memoria,
+        config,
         historial=historial,
-        modelo=config_ia["modelo"],
-        timeout=config_ia["timeout"],
-        keep_alive=config_ia["keep_alive"],
-        limite_respuesta=config_ia["longitud_respuesta"],
     )
 
-    resultado.respuesta = respuesta
-    resultado.accion = (
-        "error_ia"
-        if respuesta.startswith(ERROR_OLLAMA)
-        else "respuesta_ia"
-    )
+    resultado.respuesta = respuesta.texto
+    resultado.debug = respuesta.metricas or None
 
-    if resultado.accion == "respuesta_ia":
+    if respuesta.error:
+        resultado.accion = "error_ia"
+    elif respuesta.proveedor == "nvidia":
+        resultado.accion = "respuesta_ia_nvidia"
+    elif respuesta.proveedor == "ollama":
+        resultado.accion = "respuesta_ia_ollama"
+    else:
+        resultado.accion = "respuesta_ia"
+
+    if not respuesta.error:
         registrar_turno_conversacion(
             memoria,
             texto,
-            respuesta,
-            limite=config_ia["max_turnos_conversacion"],
+            respuesta.texto,
+            limite=config_ia["max_turnos"],
         )
         guardar_memoria(memoria)
 
     return True
-
-
-def _config_ia(config: dict[str, Any]) -> dict[str, Any]:
-    ia = config.get("ia", {})
-
-    if not isinstance(ia, dict):
-        ia = {}
-
-    return {
-        "activada": bool(ia.get("activada", True)),
-        "modelo": str(ia.get("modelo", "qwen3:1.7b") or "qwen3:1.7b"),
-        "timeout": _numero_config(ia.get("timeout"), 60.0),
-        "limite_contexto": int(_numero_config(
-            ia.get("limite_contexto"),
-            1200.0,
-        )),
-        "max_turnos_conversacion": int(_numero_config(
-            ia.get("max_turnos_conversacion"),
-            6.0,
-        )),
-        "longitud_respuesta": int(_numero_config(
-            ia.get("longitud_respuesta"),
-            1200.0,
-        )),
-        "keep_alive": str(ia.get("keep_alive", "10m") or "10m"),
-    }
-
-
-def _numero_config(valor: Any, defecto: float) -> float:
-    try:
-        numero = float(valor)
-    except (TypeError, ValueError):
-        return defecto
-
-    return numero if numero > 0 else defecto
 
 
 def _resolver_intencion(
@@ -362,11 +325,6 @@ def _resolver_intencion(
     if intencion == "calc":
         resultado.respuesta = ejecutar_calculadora(texto)
         resultado.accion = "calcular"
-        return True
-
-    if intencion == "version":
-        resultado.respuesta = responder_personalidad("ORION v1.8", config)
-        resultado.accion = "mostrar_version"
         return True
 
     if intencion == "ayuda":

@@ -21,6 +21,8 @@ def generar_respuesta(
     timeout: float = 60.0,
     keep_alive: str = "10m",
     limite_respuesta: int = 1200,
+    num_predict: int = 100,
+    num_ctx: int = 2048,
 ) -> str:
     payload = _crear_payload(
         mensaje,
@@ -28,6 +30,8 @@ def generar_respuesta(
         historial,
         modelo,
         keep_alive,
+        num_predict,
+        num_ctx,
     )
     datos = json.dumps(payload).encode("utf-8")
     solicitud = request.Request(
@@ -76,6 +80,8 @@ def _crear_payload(
     historial: list[dict[str, str]] | None,
     modelo: str,
     keep_alive: str,
+    num_predict: int,
+    num_ctx: int,
 ) -> dict[str, Any]:
     mensajes = [
         {
@@ -102,6 +108,10 @@ def _crear_payload(
         "stream": False,
         "think": False,
         "keep_alive": keep_alive or "10m",
+        "options": {
+            "num_predict": max(1, int(num_predict)),
+            "num_ctx": max(512, int(num_ctx)),
+        },
     }
 
 

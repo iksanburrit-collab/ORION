@@ -16,6 +16,7 @@ sys.path.insert(0, str(RAIZ))
 from core.cerebro import procesar
 from core.memoria import inicializar_memoria
 from ia.ollama import ERROR_OLLAMA, generar_respuesta
+from ia.proveedor import RespuestaProveedor
 
 
 class RespuestaHTTPFalsa:
@@ -72,6 +73,8 @@ class IntegracionOllamaTests(unittest.TestCase):
         self.assertFalse(payload["think"])
         self.assertFalse(payload["stream"])
         self.assertEqual(payload["keep_alive"], "10m")
+        self.assertEqual(payload["options"]["num_predict"], 100)
+        self.assertEqual(payload["options"]["num_ctx"], 2048)
         self.assertIn("Perfil: nombre Michel", payload["messages"][0]["content"])
         self.assertEqual(payload["messages"][-1]["content"], "hola")
         self.assertNotIn("oculto", respuesta)
@@ -119,32 +122,21 @@ class IntegracionOllamaTests(unittest.TestCase):
         generar.assert_not_called()
         self.assertEqual(resultado.accion, "mostrar_hora")
 
-    @mock.patch("core.cerebro.construir_contexto_para_ia")
     @mock.patch("core.cerebro.generar_respuesta")
     def test_mensaje_desconocido_llama_a_ollama_y_usa_contexto(
         self,
         generar,
-        construir_contexto,
     ):
-        construir_contexto.return_value = "Gustos videojuegos: Factorio"
-        generar.return_value = "Respuesta local"
+        generar.return_value = RespuestaProveedor("Respuesta local", "ollama")
 
         resultado = procesar("cuentame algo de automatizacion", self.memoria, self.config)
 
-        self.assertEqual(resultado.accion, "respuesta_ia")
-        construir_contexto.assert_called_once_with(
-            self.memoria,
-            consulta="cuentame algo de automatizacion",
-            limite=1200,
-        )
+        self.assertEqual(resultado.accion, "respuesta_ia_ollama")
         generar.assert_called_once_with(
             "cuentame algo de automatizacion",
-            contexto="Gustos videojuegos: Factorio",
+            self.memoria,
+            self.config,
             historial=[],
-            modelo="qwen3:1.7b",
-            timeout=60.0,
-            keep_alive="10m",
-            limite_respuesta=1200,
         )
 
     @mock.patch("core.cerebro.generar_respuesta")
@@ -156,11 +148,9 @@ class IntegracionOllamaTests(unittest.TestCase):
         generar.assert_not_called()
         self.assertEqual(resultado.accion, "desconocido")
 
-    @mock.patch("core.cerebro.construir_contexto_para_ia")
     @mock.patch("core.cerebro.generar_respuesta")
-    def test_ia_no_modifica_memoria_personal(self, generar, construir_contexto):
-        construir_contexto.return_value = ""
-        generar.return_value = "Respuesta local"
+    def test_ia_no_modifica_memoria_personal(self, generar):
+        generar.return_value = RespuestaProveedor("Respuesta local", "ollama")
         usuario_antes = copy.deepcopy(self.memoria["usuario"])
         aprendizaje_antes = copy.deepcopy(self.memoria["aprendizaje"])
 

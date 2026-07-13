@@ -22,12 +22,23 @@ config = asegurar_json(
         "modo": "normal",
         "ia": {
             "activada": True,
-            "modelo": "qwen3:1.7b",
-            "timeout": 60,
-            "limite_contexto": 1200,
-            "max_turnos_conversacion": 6,
-            "longitud_respuesta": 1200,
-            "keep_alive": "10m",
+            "proveedor": "nvidia",
+            "fallback_local": False,
+            "nvidia": {
+                "modelo": "meta/llama-4-maverick-17b-128e-instruct",
+                "timeout": 10,
+                "max_tokens": 180,
+            },
+            "ollama": {
+                "modelo": "qwen3:1.7b",
+                "timeout": 60,
+                "keep_alive": "10m",
+                "num_predict": 100,
+                "num_ctx": 2048,
+            },
+            "limite_contexto": 900,
+            "max_turnos": 4,
+            "debug_rendimiento": True,
         },
     },
 )
@@ -66,6 +77,9 @@ while True:
 
     if resultado.respuesta:
         print(resultado.respuesta)
+
+    if resultado.debug:
+        print(f"[IA debug] {resultado.debug}")
 
     solicitud = resultado.solicitud
     if solicitud:
