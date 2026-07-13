@@ -16,7 +16,21 @@ memoria = inicializar_memoria(cargar("memoria.json", {}))
 notas = asegurar_json("notas.json", [])
 recordatorios = asegurar_json("recordatorios.json", [])
 alias = asegurar_json("alias.json", {})
-config = asegurar_json("config.json", {"modo": "normal"})
+config = asegurar_json(
+    "config.json",
+    {
+        "modo": "normal",
+        "ia": {
+            "activada": True,
+            "modelo": "qwen3:1.7b",
+            "timeout": 60,
+            "limite_contexto": 1200,
+            "max_turnos_conversacion": 6,
+            "longitud_respuesta": 1200,
+            "keep_alive": "10m",
+        },
+    },
+)
 guardar_memoria(memoria)
 
 

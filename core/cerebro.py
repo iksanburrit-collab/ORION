@@ -16,12 +16,16 @@ from core.memoria import (
     actualizar_perfil,
     agregar_historial,
     aprender,
+    construir_contexto_para_ia,
     guardar_contexto,
     guardar_memoria,
+    obtener_historial_conversacion,
     obtener_fecha_nacimiento,
     obtener_nombre,
+    registrar_turno_conversacion,
 )
 from core.personalidad import responder_personalidad
+from ia.ollama import ERROR_OLLAMA, generar_respuesta
 from utilidades.fechas import calcular_edad, fecha_actual, hora_actual
 
 
@@ -66,13 +70,11 @@ def procesar(
     alias = alias if alias is not None else {}
     recordatorios = recordatorios if recordatorios is not None else []
 
-    conocimiento = _registrar_entrada(texto, memoria)
     intencion = detectar_intencion(texto)
 
     resultado = ResultadoCerebro(
         texto=texto,
         intencion=intencion,
-        conocimiento=conocimiento,
     )
 
     if navegador_inteligente(texto):
@@ -94,19 +96,22 @@ def procesar(
     ):
         return resultado
 
+    conocimiento = _registrar_aprendizaje(texto, memoria)
+    resultado.conocimiento = conocimiento
+
     if conocimiento is not None:
         resultado.accion = "aprendizaje"
 
         if conocimiento.tipo == "gusto":
             mensaje = (
                 f"Entendido. Recordaré que te gusta "
-                f"{conocimiento.valor}."
+                f"{conocimiento.valor} en {conocimiento.categoria}."
             )
 
         elif conocimiento.tipo == "aprendizaje":
             mensaje = (
                 f"Entendido. Recordaré que estás aprendiendo "
-                f"{conocimiento.valor}."
+                f"{conocimiento.valor} en {conocimiento.categoria}."
             )
 
         elif conocimiento.tipo == "objetivo":
@@ -133,6 +138,12 @@ def procesar(
         config,
         resultado,
     ):
+        return resultado
+
+    if _resolver_consulta_memoria(texto, memoria, config, resultado):
+        return resultado
+
+    if _resolver_ia(texto, memoria, config, resultado):
         return resultado
 
     resultado.respuesta = random.choice([
@@ -189,15 +200,102 @@ def completar_solicitud(
     )
 
 
-def _registrar_entrada(
+def _registrar_aprendizaje(
     texto: str,
     memoria: dict[str, Any]
 ) -> Any | None:
     conocimiento = aprender(texto, memoria, guardar=False)
-    agregar_historial(texto, memoria, guardar=False)
-    guardar_contexto(texto, memoria, guardar=False)
-    guardar_memoria(memoria)
+
+    if conocimiento is not None:
+        agregar_historial(texto, memoria, guardar=False)
+        guardar_contexto(texto, memoria, guardar=False)
+        guardar_memoria(memoria)
+
     return conocimiento
+
+
+def _resolver_ia(
+    texto: str,
+    memoria: dict[str, Any],
+    config: dict[str, Any],
+    resultado: ResultadoCerebro,
+) -> bool:
+    config_ia = _config_ia(config)
+
+    if not config_ia["activada"]:
+        return False
+
+    contexto = construir_contexto_para_ia(
+        memoria,
+        consulta=texto,
+        limite=config_ia["limite_contexto"],
+    )
+    historial = obtener_historial_conversacion(
+        memoria,
+        limite=config_ia["max_turnos_conversacion"],
+    )
+    respuesta = generar_respuesta(
+        texto,
+        contexto=contexto,
+        historial=historial,
+        modelo=config_ia["modelo"],
+        timeout=config_ia["timeout"],
+        keep_alive=config_ia["keep_alive"],
+        limite_respuesta=config_ia["longitud_respuesta"],
+    )
+
+    resultado.respuesta = respuesta
+    resultado.accion = (
+        "error_ia"
+        if respuesta.startswith(ERROR_OLLAMA)
+        else "respuesta_ia"
+    )
+
+    if resultado.accion == "respuesta_ia":
+        registrar_turno_conversacion(
+            memoria,
+            texto,
+            respuesta,
+            limite=config_ia["max_turnos_conversacion"],
+        )
+        guardar_memoria(memoria)
+
+    return True
+
+
+def _config_ia(config: dict[str, Any]) -> dict[str, Any]:
+    ia = config.get("ia", {})
+
+    if not isinstance(ia, dict):
+        ia = {}
+
+    return {
+        "activada": bool(ia.get("activada", True)),
+        "modelo": str(ia.get("modelo", "qwen3:1.7b") or "qwen3:1.7b"),
+        "timeout": _numero_config(ia.get("timeout"), 60.0),
+        "limite_contexto": int(_numero_config(
+            ia.get("limite_contexto"),
+            1200.0,
+        )),
+        "max_turnos_conversacion": int(_numero_config(
+            ia.get("max_turnos_conversacion"),
+            6.0,
+        )),
+        "longitud_respuesta": int(_numero_config(
+            ia.get("longitud_respuesta"),
+            1200.0,
+        )),
+        "keep_alive": str(ia.get("keep_alive", "10m") or "10m"),
+    }
+
+
+def _numero_config(valor: Any, defecto: float) -> float:
+    try:
+        numero = float(valor)
+    except (TypeError, ValueError):
+        return defecto
+
+    return numero if numero > 0 else defecto
 
 
 def _resolver_intencion(
@@ -317,13 +415,23 @@ def _resolver_comando_directo(
     ):
         return True
 
-    procesado, accion, respuesta = procesar_memoria(texto, memoria)
-    if procesado:
-        resultado.accion = accion
-        resultado.respuesta = responder_personalidad(respuesta, config)
-        return True
-
     return False
+
+
+def _resolver_consulta_memoria(
+    texto: str,
+    memoria: dict[str, Any],
+    config: dict[str, Any],
+    resultado: ResultadoCerebro,
+) -> bool:
+    procesado, accion, respuesta = procesar_memoria(texto, memoria)
+
+    if not procesado:
+        return False
+
+    resultado.accion = accion
+    resultado.respuesta = responder_personalidad(respuesta, config)
+    return True
 
 
 def _aplicar_procesado(

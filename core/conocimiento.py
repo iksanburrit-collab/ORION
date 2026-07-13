@@ -104,6 +104,33 @@ CATEGORIAS_GUSTOS = {
 }
 
 
+ENTIDADES_CANONICAS = {
+    "arena breakout": "Arena Breakout",
+    "factorio": "Factorio",
+    "minecraft": "Minecraft",
+    "musica": "música",
+    "música": "música",
+    "vscode": "VS Code",
+    "vs code": "VS Code",
+    "visual studio code": "VS Code",
+    "wosb": "World of Sea Battle",
+    "world of sea battle": "World of Sea Battle",
+    "python": "Python",
+    "git": "Git",
+}
+
+
+ENTIDADES_CATEGORIAS_GUSTOS = {
+    "arena breakout": "videojuegos",
+    "factorio": "videojuegos",
+    "minecraft": "videojuegos",
+    "música": "musica",
+    "musica": "musica",
+    "world of sea battle": "videojuegos",
+    "wosb": "videojuegos",
+}
+
+
 ALIAS_GUSTOS = {
     "musica": "musica",
     "música": "musica",
@@ -147,6 +174,8 @@ PALABRAS_CLAVE_GUSTOS = {
         "factorio",
         "arena",
         "breakout",
+        "wosb",
+        "sea battle",
         "simulador",
         "automatizacion",
         "automatización",
@@ -421,7 +450,10 @@ def clasificar_gusto(
     texto_original: str = "",
     categoria_contexto: str | None = None,
 ) -> ClasificacionGusto:
-    valor_limpio = limpiar_valor(valor)
+    valor_limpio = canonizar_entidad(limpiar_valor(valor))
+    categoria_alias = ENTIDADES_CATEGORIAS_GUSTOS.get(
+        normalizar_para_busqueda(valor_limpio)
+    )
 
     if (
         categoria_contexto is None
@@ -432,6 +464,14 @@ def clasificar_gusto(
 
     texto_original = texto_original or valor_limpio
     categoria_contexto = _normalizar_categoria_gusto(categoria_contexto)
+
+    if categoria_alias:
+        return ClasificacionGusto(
+            categoria_alias,
+            valor_limpio,
+            1.0,
+            ("alias_entidad",),
+        )
 
     if categoria_contexto in CATEGORIAS_GUSTOS_MEMORIA:
         return ClasificacionGusto(
@@ -569,7 +609,7 @@ def _contiene_termino(texto: str, termino: str) -> bool:
 
 
 def clasificar_aprendizaje(valor: str) -> tuple[str, str]:
-    valor_limpio = limpiar_valor(valor)
+    valor_limpio = canonizar_entidad(limpiar_valor(valor))
     categoria_detectada = _clasificar_por_diccionario(
         valor_limpio,
         CATEGORIAS_APRENDIZAJE
@@ -582,7 +622,7 @@ def clasificar_aprendizaje(valor: str) -> tuple[str, str]:
 
 
 def clasificar_herramienta(valor: str) -> tuple[str, str]:
-    valor_limpio = limpiar_valor(valor)
+    valor_limpio = canonizar_entidad(limpiar_valor(valor))
     categoria_detectada = _clasificar_por_diccionario(
         valor_limpio,
         CATEGORIAS_HERRAMIENTAS
@@ -645,6 +685,16 @@ def limpiar_valor(valor: str) -> str:
             break
 
     return valor
+
+
+def canonizar_entidad(valor: str) -> str:
+    valor_limpio = limpiar_valor(valor)
+    valor_normalizado = normalizar_para_busqueda(valor_limpio)
+
+    if valor_normalizado in ENTIDADES_CANONICAS:
+        return ENTIDADES_CANONICAS[valor_normalizado]
+
+    return valor_limpio
 
 
 def _detectar_gusto(

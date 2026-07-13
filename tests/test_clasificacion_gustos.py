@@ -9,7 +9,7 @@ RAIZ = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(RAIZ))
 
 from core.cerebro import procesar
-from core.conocimiento import clasificar_gusto
+from core.conocimiento import clasificar_gusto, normalizar_para_busqueda
 from core.memoria import aprender, guardar_memoria, inicializar_memoria
 from utilidades.archivos import cargar
 
@@ -111,7 +111,7 @@ class ClasificacionGustosTests(unittest.TestCase):
         completo = self.procesar("que me gusta").respuesta
 
         self.assertIn("Arena Breakout", videojuegos)
-        self.assertIn("Musica", musica)
+        self.assertIn("musica", normalizar_para_busqueda(musica))
         self.assertIn("pasta", comida)
         self.assertIn("voleibol", deportes)
         self.assertIn("videojuegos:", completo)

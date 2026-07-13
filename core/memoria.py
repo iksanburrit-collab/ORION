@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from datetime import datetime, timezone
+import re
 from typing import Any
 
 from core.conocimiento import (
@@ -9,6 +10,7 @@ from core.conocimiento import (
     CATEGORIAS_GUSTOS_MEMORIA,
     CATEGORIAS_HERRAMIENTAS_MEMORIA,
     ConocimientoDetectado,
+    canonizar_entidad,
     clasificar_aprendizaje,
     clasificar_gusto,
     detectar_conocimiento,
@@ -20,8 +22,9 @@ from utilidades.archivos import guardar_json
 
 
 MEMORIA_ARCHIVO = "memoria.json"
-VERSION_MEMORIA = 5
+VERSION_MEMORIA = 6
 MAXIMO_LARGO_RECUERDO = 80
+MAXIMO_TURNOS_CONVERSACION = 8
 CONFIANZA_USUARIO = 1.0
 CONFIANZA_INFERENCIA = 0.65
 CONFIANZA_SISTEMA = 0.8
@@ -140,6 +143,10 @@ def registrar_gusto(
 ) -> None:
 
     valor = _limpiar_recuerdo(valor)
+    clasificacion = clasificar_gusto(valor)
+
+    if categoria == "otros" and clasificacion.categoria != "otros":
+        categoria = clasificacion.categoria
 
     if not valor:
         return
@@ -240,6 +247,62 @@ def registrar_herramienta(
         fuente=fuente,
         confianza=confianza,
     )
+
+
+def registrar_turno_conversacion(
+    memoria: dict[str, Any],
+    mensaje_usuario: str,
+    respuesta_orion: str,
+    limite: int = MAXIMO_TURNOS_CONVERSACION,
+    fecha: str | None = None,
+) -> None:
+    mensaje_usuario = _limpiar_texto_conversacion(mensaje_usuario)
+    respuesta_orion = _limpiar_texto_conversacion(respuesta_orion)
+
+    if (
+        not mensaje_usuario
+        or not respuesta_orion
+        or respuesta_orion.startswith("No pude usar Ollama:")
+    ):
+        return
+
+    conversacion = _asegurar_lista(memoria, "conversacion")
+    turno = {
+        "usuario": mensaje_usuario,
+        "orion": respuesta_orion,
+        "fecha": fecha or _fecha_iso(),
+    }
+
+    if conversacion and _clave_turno(conversacion[-1]) == _clave_turno(turno):
+        return
+
+    conversacion.append(turno)
+    _recortar_conversacion(conversacion, limite)
+
+
+def obtener_historial_conversacion(
+    memoria: dict[str, Any],
+    limite: int = MAXIMO_TURNOS_CONVERSACION,
+) -> list[dict[str, str]]:
+    conversacion = memoria.get("conversacion", [])
+
+    if not isinstance(conversacion, list) or limite <= 0:
+        return []
+
+    mensajes = []
+
+    for turno in conversacion[-limite:]:
+        if not isinstance(turno, dict):
+            continue
+
+        usuario = _limpiar_texto_conversacion(turno.get("usuario", ""))
+        orion = _limpiar_texto_conversacion(turno.get("orion", ""))
+
+        if usuario and orion:
+            mensajes.append({"role": "user", "content": usuario})
+            mensajes.append({"role": "assistant", "content": orion})
+
+    return mensajes
 
 
 def registrar_conocimiento_semantico(
@@ -616,7 +679,10 @@ def construir_contexto_para_ia(
         )
         for evento in recuerdos
     ]
-    lineas = lineas_prioritarias + lineas_relacionadas + lineas_recuerdos
+    lineas_conversacion = _lineas_conversacion_reciente(memoria, consulta)
+    lineas = (
+        [f"Consulta actual: {consulta}"] if consulta else []
+    ) + lineas_prioritarias + lineas_relacionadas + lineas_recuerdos + lineas_conversacion
 
     return _aplicar_limite_contexto(lineas, limite)
 
@@ -652,6 +718,7 @@ def _crear_estructura_base() -> dict[str, Any]:
             "ultimo_contexto": "",
         },
         "historial": [],
+        "conversacion": [],
         "semantica": {
             "entidades": {},
             "relaciones": [],
@@ -707,6 +774,8 @@ def _asegurar_raiz(memoria: dict[str, Any]) -> None:
         contexto.setdefault(clave, valor)
 
     _asegurar_lista(memoria, "historial")
+    conversacion = _asegurar_lista(memoria, "conversacion")
+    _normalizar_conversacion(conversacion)
     semantica = _asegurar_diccionario(memoria, "semantica")
     _asegurar_diccionario(semantica, "entidades")
     _asegurar_lista(semantica, "relaciones")
@@ -849,6 +918,8 @@ def _limpiar_memoria_funcional(memoria: dict[str, Any]) -> None:
         if isinstance(valores, list):
             _normalizar_lista_recuerdos(valores)
 
+    _reclasificar_gustos(memoria)
+
     for valores in memoria.get("aprendizaje", {}).values():
         if isinstance(valores, list):
             _normalizar_lista_recuerdos(valores)
@@ -867,6 +938,100 @@ def _limpiar_memoria_funcional(memoria: dict[str, Any]) -> None:
     if isinstance(eventos, list):
         _normalizar_episodios(eventos)
 
+    conversacion = memoria.get("conversacion", [])
+
+    if isinstance(conversacion, list):
+        _normalizar_conversacion(conversacion)
+
+
+def _reclasificar_gustos(memoria: dict[str, Any]) -> None:
+    gustos = memoria.get("usuario", {}).get("gustos", {})
+
+    if not isinstance(gustos, dict):
+        return
+
+    nuevos = {
+        categoria: []
+        for categoria in CATEGORIAS_GUSTOS_MEMORIA
+    }
+    ubicaciones: dict[str, str] = {}
+    conservados_otros = []
+
+    for categoria, valores in list(gustos.items()):
+        if not isinstance(valores, list):
+            continue
+
+        categoria_actual = (
+            categoria
+            if categoria in CATEGORIAS_GUSTOS_MEMORIA
+            else "otros"
+        )
+
+        for valor in valores:
+            valor_limpio = _limpiar_recuerdo(valor)
+
+            if not valor_limpio:
+                continue
+
+            destino = _categoria_migrada_gusto(categoria_actual, valor_limpio)
+            _agregar_gusto_migrado(nuevos, ubicaciones, destino, valor_limpio)
+
+            if categoria_actual == "otros" and destino == "otros":
+                _agregar_unico(conservados_otros, valor_limpio)
+
+    gustos.clear()
+    gustos.update(nuevos)
+
+    if conservados_otros:
+        sistema = _asegurar_diccionario(memoria, "sistema")
+        migracion = _asegurar_diccionario(sistema, "migracion_v6")
+        copia = _asegurar_lista(migracion, "conservados_otros")
+
+        for valor in conservados_otros:
+            _agregar_unico(copia, valor)
+
+
+def _categoria_migrada_gusto(categoria_actual: str, valor: str) -> str:
+    clasificacion = clasificar_gusto(valor)
+
+    if (
+        clasificacion.categoria != "otros"
+        and clasificacion.confianza >= CONFIANZA_INFERENCIA
+    ):
+        return clasificacion.categoria
+
+    if categoria_actual in CATEGORIAS_GUSTOS_MEMORIA:
+        return categoria_actual
+
+    return "otros"
+
+
+def _agregar_gusto_migrado(
+    gustos: dict[str, list[str]],
+    ubicaciones: dict[str, str],
+    categoria: str,
+    valor: str,
+) -> None:
+    clave = _clave_recuerdo(valor)
+    existente = ubicaciones.get(clave)
+
+    if existente == categoria:
+        _agregar_unico(gustos[categoria], valor)
+        return
+
+    if existente and existente != "otros":
+        return
+
+    if existente == "otros" and categoria != "otros":
+        gustos["otros"] = [
+            actual
+            for actual in gustos["otros"]
+            if _clave_recuerdo(actual) != clave
+        ]
+
+    ubicaciones[clave] = categoria
+    _agregar_unico(gustos[categoria], valor)
+
 
 def _normalizar_lista_recuerdos(lista: list[Any]) -> None:
     vistos = set()
@@ -878,7 +1043,7 @@ def _normalizar_lista_recuerdos(lista: list[Any]) -> None:
         if not valor_limpio:
             continue
 
-        clave = normalizar_para_busqueda(valor_limpio)
+        clave = _clave_recuerdo(valor_limpio)
 
         if clave in vistos:
             continue
@@ -889,11 +1054,15 @@ def _normalizar_lista_recuerdos(lista: list[Any]) -> None:
     lista[:] = limpios
 
 
+def _clave_recuerdo(valor: Any) -> str:
+    return normalizar_para_busqueda(canonizar_entidad(str(valor)))
+
+
 def _limpiar_recuerdo(valor: Any) -> str:
     if not isinstance(valor, str):
         return ""
 
-    valor_limpio = limpiar_valor(valor)
+    valor_limpio = canonizar_entidad(limpiar_valor(valor))
     valor_normalizado = normalizar_para_busqueda(valor_limpio)
 
     if not valor_limpio or len(valor_limpio) > MAXIMO_LARGO_RECUERDO:
@@ -933,6 +1102,57 @@ def _normalizar_episodios(eventos: list[Any]) -> None:
             limpios.append(normalizado)
 
     eventos[:] = limpios
+
+
+def _normalizar_conversacion(conversacion: list[Any]) -> None:
+    limpios = []
+
+    for turno in conversacion:
+        if not isinstance(turno, dict):
+            continue
+
+        usuario = _limpiar_texto_conversacion(turno.get("usuario", ""))
+        orion = _limpiar_texto_conversacion(turno.get("orion", ""))
+
+        if not usuario or not orion:
+            continue
+
+        normalizado = {
+            "usuario": usuario,
+            "orion": orion,
+            "fecha": str(turno.get("fecha") or _fecha_iso()),
+        }
+
+        if not limpios or _clave_turno(limpios[-1]) != _clave_turno(normalizado):
+            limpios.append(normalizado)
+
+    conversacion[:] = limpios[-MAXIMO_TURNOS_CONVERSACION:]
+
+
+def _limpiar_texto_conversacion(valor: Any) -> str:
+    if not isinstance(valor, str):
+        return ""
+
+    valor = re.sub(r"\s+", " ", valor.strip())
+
+    if not valor or len(valor) > 1200:
+        return ""
+
+    return valor
+
+
+def _recortar_conversacion(conversacion: list[Any], limite: int) -> None:
+    limite = max(0, int(limite))
+
+    if len(conversacion) > limite:
+        conversacion[:] = conversacion[-limite:]
+
+
+def _clave_turno(turno: dict[str, Any]) -> tuple[str, str]:
+    return (
+        normalizar_para_busqueda(str(turno.get("usuario", ""))),
+        normalizar_para_busqueda(str(turno.get("orion", ""))),
+    )
 
 
 def _es_episodio_valido(tipo: str, contenido: str) -> bool:
@@ -1075,6 +1295,41 @@ def _lineas_aprendizaje_relacionado(
 ) -> list[str]:
     aprendizaje = memoria.get("aprendizaje", {})
     return _lineas_mapa_relacionado("Aprendizaje", aprendizaje, consulta)
+
+
+def _lineas_conversacion_reciente(
+    memoria: dict[str, Any],
+    consulta: str,
+    limite: int = 3,
+) -> list[str]:
+    conversacion = memoria.get("conversacion", [])
+
+    if not isinstance(conversacion, list) or limite <= 0:
+        return []
+
+    palabras = _palabras_clave(consulta)
+    turnos = []
+
+    for posicion, turno in enumerate(conversacion):
+        if not isinstance(turno, dict):
+            continue
+
+        usuario = _limpiar_texto_conversacion(turno.get("usuario", ""))
+        orion = _limpiar_texto_conversacion(turno.get("orion", ""))
+
+        if not usuario or not orion:
+            continue
+
+        texto = normalizar_para_busqueda(f"{usuario} {orion}")
+        coincidencias = sum(1 for palabra in palabras if palabra in texto)
+        puntuacion = coincidencias * 3 + posicion
+        turnos.append((puntuacion, usuario, orion))
+
+    turnos.sort(key=lambda item: item[0], reverse=True)
+    return [
+        f"Conversacion reciente: usuario dijo {usuario}; ORION respondio {orion}"
+        for _, usuario, orion in turnos[:limite]
+    ]
 
 
 def _lineas_mapa_relacionado(
