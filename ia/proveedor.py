@@ -1,24 +1,35 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import copy
 import time
-from typing import Any
+from typing import Any, Callable
 
 from core.memoria import construir_contexto_para_ia
-from ia.nvidia import (
-    ERROR_NVIDIA,
-    DiagnosticoNvidia,
-    generar_respuesta_nvidia_diagnostico,
-)
-from ia.ollama import ERROR_OLLAMA, generar_respuesta as generar_respuesta_ollama
+from ia.contratos import RespuestaIA, SolicitudIA
+from ia import groq, ollama
 
 
-@dataclass(frozen=True)
-class RespuestaProveedor:
-    texto: str
-    proveedor: str
-    error: bool = False
-    metricas: dict[str, Any] = field(default_factory=dict)
+AdaptadorProveedor = Callable[[SolicitudIA], RespuestaIA]
+
+PROVEEDORES: dict[str, AdaptadorProveedor] = {
+    "groq": groq.responder,
+    "ollama": ollama.responder,
+}
+
+RespuestaProveedor = RespuestaIA
+
+_CLAVES_LEGACY_IA = {
+    "proveedor",
+    "fallback_local",
+    "modelo",
+    "timeout",
+    "keep_alive",
+    "num_predict",
+    "num_ctx",
+    "max_turnos_conversacion",
+    "nvidia",
+    "ollama",
+}
 
 
 def generar_respuesta(
@@ -26,11 +37,11 @@ def generar_respuesta(
     memoria: dict[str, Any],
     config: dict[str, Any],
     historial: list[dict[str, str]] | None = None,
-) -> RespuestaProveedor:
+) -> RespuestaIA:
     config_ia = normalizar_config_ia(config)
 
     if not config_ia["activada"]:
-        return RespuestaProveedor("", "desactivada", error=True)
+        return RespuestaIA("", "desactivada", error=True, tipo_error="ia_desactivada")
 
     inicio_contexto = time.perf_counter()
     contexto = construir_contexto_para_ia(
@@ -38,63 +49,54 @@ def generar_respuesta(
         consulta=mensaje,
         limite=config_ia["limite_contexto"],
     )
-    tiempo_contexto = time.perf_counter() - inicio_contexto
-    proveedor = config_ia["proveedor"]
+    tiempo_contexto = round(time.perf_counter() - inicio_contexto, 4)
+    errores: list[RespuestaIA] = []
+    proveedores_probados: list[str] = []
 
-    if proveedor == "ollama":
-        return _responder_ollama(mensaje, contexto, historial, config_ia, tiempo_contexto)
+    for nombre in config_ia["router"]["orden_proveedores"]:
+        if nombre in proveedores_probados:
+            continue
 
-    if proveedor == "nvidia":
-        respuesta = _responder_nvidia(
+        proveedores_probados.append(nombre)
+        adaptador = PROVEEDORES.get(nombre)
+        config_proveedor = config_ia["proveedores"].get(nombre, {})
+
+        if adaptador is None or not config_proveedor.get("activado", False):
+            continue
+
+        solicitud = _crear_solicitud(
             mensaje,
             contexto,
             historial,
-            config_ia,
+            config_proveedor,
+        )
+        respuesta = adaptador(solicitud)
+        metricas = _metricas(
+            respuesta,
+            contexto,
             tiempo_contexto,
+            errores,
+            fallback=bool(errores),
+            intentos=proveedores_probados,
+            debug=config_ia["debug_rendimiento"],
         )
 
         if not respuesta.error:
-            return respuesta
+            return _con_metricas(respuesta, metricas)
 
-        if config_ia["fallback_local"]:
-            if config_ia["debug_rendimiento"]:
-                _imprimir_debug_fallback()
+        errores.append(respuesta)
 
-            fallback = _responder_ollama(
-                mensaje,
-                contexto,
-                historial,
-                config_ia,
-                tiempo_contexto,
-            )
-
-            if not fallback.error:
-                return RespuestaProveedor(
-                    fallback.texto,
-                    fallback.proveedor,
-                    error=False,
-                    metricas=_combinar_metricas_fallback(
-                        respuesta.metricas,
-                        fallback.metricas,
-                    ),
-                )
-
-            return RespuestaProveedor(
-                _mensaje_error_final(respuesta.texto, fallback.texto),
-                "ninguno",
-                error=True,
-                metricas=_combinar_metricas_fallback(
-                    respuesta.metricas,
-                    fallback.metricas,
-                ),
-            )
-
-        return respuesta
-
-    return RespuestaProveedor(
-        "No pude usar IA: proveedor no reconocido.",
-        "ninguno",
+    return RespuestaIA(
+        texto=_mensaje_error_final(errores),
+        proveedor="ninguno",
         error=True,
+        tipo_error="todos_fallaron",
+        diagnostico=_metricas_error_final(
+            errores,
+            proveedores_probados,
+            tiempo_contexto,
+            config_ia["debug_rendimiento"],
+        ),
     )
 
 
@@ -104,229 +106,300 @@ def normalizar_config_ia(config: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(ia, dict):
         ia = {}
 
-    nvidia = ia.get("nvidia", {})
-    ollama = ia.get("ollama", {})
+    proveedores_config = ia.get("proveedores", {})
 
-    if not isinstance(nvidia, dict):
-        nvidia = {}
+    if not isinstance(proveedores_config, dict):
+        proveedores_config = {}
 
-    if not isinstance(ollama, dict):
-        ollama = {}
+    proveedor_legacy = str(ia.get("proveedor", "") or "").lower()
+    orden_legacy = _orden_desde_legacy(proveedor_legacy, ia.get("fallback_local", True))
+    router = ia.get("router", {})
+
+    if not isinstance(router, dict):
+        router = {}
+
+    orden = router.get("orden_proveedores", orden_legacy)
+    groq_config = _config_dict(proveedores_config.get("groq"))
+    ollama_config = _config_dict(proveedores_config.get("ollama", ia.get("ollama", {})))
+    futuro_config = _config_dict(proveedores_config.get("futuro"))
 
     return {
         "activada": bool(ia.get("activada", True)),
-        "proveedor": str(ia.get("proveedor", "nvidia") or "nvidia").lower(),
-        "fallback_local": bool(ia.get("fallback_local", True)),
-        "limite_contexto": int(_numero_config(
-            ia.get("limite_contexto"),
-            900.0,
-        )),
+        "router": {
+            "orden_proveedores": _normalizar_orden(orden),
+        },
+        "proveedores": {
+            "groq": {
+                "activado": bool(groq_config.get("activado", True)),
+                "modelo": str(groq_config.get("modelo", "llama-3.1-8b-instant") or ""),
+                "timeout": _numero_config(groq_config.get("timeout"), 15.0),
+                "max_tokens": int(_numero_config(groq_config.get("max_tokens"), 180.0)),
+                "temperature": _numero_config(groq_config.get("temperature"), 0.6),
+                "top_p": _numero_config(groq_config.get("top_p"), 0.9),
+            },
+            "ollama": {
+                "activado": bool(ollama_config.get("activado", True)),
+                "modelo": str(
+                    ollama_config.get("modelo", ia.get("modelo", "qwen3:1.7b"))
+                    or "qwen3:1.7b"
+                ),
+                "timeout": _numero_config(
+                    ollama_config.get("timeout", ia.get("timeout")),
+                    45.0,
+                ),
+                "keep_alive": str(
+                    ollama_config.get("keep_alive", ia.get("keep_alive", "10m"))
+                    or "10m"
+                ),
+                "num_predict": int(_numero_config(
+                    ollama_config.get("num_predict", ia.get("num_predict")),
+                    90.0,
+                )),
+                "num_ctx": int(_numero_config(
+                    ollama_config.get("num_ctx", ia.get("num_ctx")),
+                    2048.0,
+                )),
+            },
+            "futuro": {
+                "activado": bool(futuro_config.get("activado", False)),
+                "tipo": str(futuro_config.get("tipo", "") or ""),
+                "modelo": str(futuro_config.get("modelo", "") or ""),
+            },
+        },
+        "limite_contexto": int(_numero_config(ia.get("limite_contexto"), 700.0)),
         "max_turnos": int(_numero_config(
             ia.get("max_turnos", ia.get("max_turnos_conversacion")),
             4.0,
         )),
         "debug_rendimiento": bool(ia.get("debug_rendimiento", False)),
-        "nvidia": {
-            "modelo": str(
-                nvidia.get(
-                    "modelo",
-                    "meta/llama-4-maverick-17b-128e-instruct",
-                )
-            ),
-            "timeout": _numero_config(nvidia.get("timeout"), 25.0),
-            "max_tokens": int(_numero_config(nvidia.get("max_tokens"), 180.0)),
-        },
-        "ollama": {
-            "modelo": str(ollama.get("modelo", ia.get("modelo", "qwen3:1.7b"))),
-            "timeout": _numero_config(
-                ollama.get("timeout", ia.get("timeout")),
-                60.0,
-            ),
-            "keep_alive": str(
-                ollama.get("keep_alive", ia.get("keep_alive", "10m")) or "10m"
-            ),
-            "num_predict": int(_numero_config(
-                ollama.get("num_predict", ia.get("num_predict")),
-                100.0,
-            )),
-            "num_ctx": int(_numero_config(
-                ollama.get("num_ctx", ia.get("num_ctx")),
-                2048.0,
-            )),
-        },
     }
 
 
-def _responder_nvidia(
+def migrar_config_ia(config: dict[str, Any]) -> bool:
+    ia_original = config.get("ia")
+
+    if not isinstance(ia_original, dict):
+        migrada = normalizar_config_ia(config)
+        candidato = dict(config)
+        candidato["ia"] = migrada
+
+        if not config_ia_migrada_correctamente(candidato):
+            return False
+
+        config["ia"] = migrada
+        return True
+
+    if not requiere_migracion_config_ia(config):
+        return False
+
+    migrada = normalizar_config_ia(config)
+    cambio = ia_original != migrada
+
+    candidato = dict(config)
+    candidato["ia"] = migrada
+
+    if not config_ia_migrada_correctamente(candidato):
+        return False
+
+    config["ia"] = migrada
+    return cambio
+
+
+def requiere_migracion_config_ia(config: dict[str, Any]) -> bool:
+    ia = config.get("ia")
+
+    if not isinstance(ia, dict):
+        return True
+
+    if any(clave in ia for clave in _CLAVES_LEGACY_IA):
+        return True
+
+    proveedores = ia.get("proveedores")
+    router = ia.get("router")
+
+    if not isinstance(router, dict):
+        return True
+
+    if not isinstance(router.get("orden_proveedores"), list):
+        return True
+
+    if not isinstance(proveedores, dict):
+        return True
+
+    if (
+        "groq" not in proveedores
+        or "ollama" not in proveedores
+        or "futuro" not in proveedores
+    ):
+        return True
+
+    return False
+
+
+def config_ia_migrada_correctamente(config: dict[str, Any]) -> bool:
+    ia = config.get("ia")
+
+    if not isinstance(ia, dict):
+        return False
+
+    if any(clave in ia for clave in _CLAVES_LEGACY_IA):
+        return False
+
+    router = ia.get("router")
+    proveedores = ia.get("proveedores")
+
+    if not isinstance(router, dict) or not isinstance(proveedores, dict):
+        return False
+
+    orden = router.get("orden_proveedores")
+
+    if not isinstance(orden, list) or not orden:
+        return False
+
+    for nombre in ("groq", "ollama", "futuro"):
+        if not isinstance(proveedores.get(nombre), dict):
+            return False
+
+    return "groq" in orden or "ollama" in orden
+
+
+def _crear_solicitud(
     mensaje: str,
     contexto: str,
     historial: list[dict[str, str]] | None,
-    config_ia: dict[str, Any],
-    tiempo_contexto: float,
-) -> RespuestaProveedor:
-    diagnostico = generar_respuesta_nvidia_diagnostico(
-        mensaje,
+    config_proveedor: dict[str, Any],
+) -> SolicitudIA:
+    opciones = copy.deepcopy(config_proveedor)
+    modelo = str(opciones.pop("modelo", "") or "")
+    timeout = _numero_config(opciones.pop("timeout", 30.0), 30.0)
+    limite_salida = int(_numero_config(
+        opciones.pop("max_tokens", opciones.get("num_predict")),
+        180.0,
+    ))
+    opciones.pop("activado", None)
+
+    return SolicitudIA(
+        mensaje=mensaje,
         contexto=contexto,
         historial=historial,
-        modelo=config_ia["nvidia"]["modelo"],
-        timeout=config_ia["nvidia"]["timeout"],
-        max_tokens=config_ia["nvidia"]["max_tokens"],
-    )
-    respuesta = diagnostico.texto
-    tiempo_respuesta = diagnostico.tiempo
-    error = respuesta.startswith(ERROR_NVIDIA)
-    metricas = _metricas(
-        "nvidia",
-        contexto,
-        respuesta,
-        tiempo_contexto,
-        tiempo_respuesta,
-        config_ia,
-        diagnostico=diagnostico,
-    )
-
-    return RespuestaProveedor(
-        respuesta,
-        "nvidia",
-        error=error,
-        metricas=metricas,
-    )
-
-
-def _responder_ollama(
-    mensaje: str,
-    contexto: str,
-    historial: list[dict[str, str]] | None,
-    config_ia: dict[str, Any],
-    tiempo_contexto: float,
-) -> RespuestaProveedor:
-    inicio = time.perf_counter()
-    respuesta = generar_respuesta_ollama(
-        mensaje,
-        contexto=contexto,
-        historial=historial,
-        modelo=config_ia["ollama"]["modelo"],
-        timeout=config_ia["ollama"]["timeout"],
-        keep_alive=config_ia["ollama"]["keep_alive"],
-        limite_respuesta=config_ia["ollama"]["num_predict"] * 8,
-        num_predict=config_ia["ollama"]["num_predict"],
-        num_ctx=config_ia["ollama"]["num_ctx"],
-    )
-    tiempo_respuesta = time.perf_counter() - inicio
-    error = respuesta.startswith(ERROR_OLLAMA)
-
-    return RespuestaProveedor(
-        respuesta,
-        "ollama",
-        error=error,
-        metricas=_metricas(
-            "ollama",
-            contexto,
-            respuesta,
-            tiempo_contexto,
-            tiempo_respuesta,
-            config_ia,
-        ),
+        modelo=modelo,
+        timeout=timeout,
+        limite_salida=limite_salida,
+        opciones=opciones,
     )
 
 
 def _metricas(
-    proveedor: str,
+    respuesta: RespuestaIA,
     contexto: str,
-    respuesta: str,
     tiempo_contexto: float,
-    tiempo_respuesta: float,
-    config_ia: dict[str, Any],
-    diagnostico: DiagnosticoNvidia | None = None,
+    errores_previos: list[RespuestaIA],
+    fallback: bool,
+    intentos: list[str],
+    debug: bool,
 ) -> dict[str, Any]:
-    if not config_ia.get("debug_rendimiento"):
+    if not debug:
         return {}
 
-    metricas = {
-        "proveedor": proveedor,
-        "tiempo_contexto": round(tiempo_contexto, 4),
-        "tiempo_respuesta": round(tiempo_respuesta, 4),
+    return {
+        "proveedor": respuesta.proveedor,
+        "modelo": respuesta.modelo,
+        "latencia": respuesta.latencia,
+        "tiempo_contexto": tiempo_contexto,
         "longitud_contexto": len(contexto),
-        "longitud_respuesta": len(respuesta),
+        "longitud_respuesta": len(respuesta.texto),
+        "tipo_error": respuesta.tipo_error,
+        "codigo_estado": respuesta.codigo_estado,
+        "fallback": fallback,
+        "intentos": list(intentos),
+        "errores_previos": [
+            _resumen_error(error_previo)
+            for error_previo in errores_previos
+        ],
     }
 
-    if diagnostico is not None:
-        metricas.update({
-            "endpoint": diagnostico.endpoint,
-            "modelo": diagnostico.modelo,
-            "api_detectada": diagnostico.api_detectada,
-            "http": diagnostico.http,
-            "mensaje": diagnostico.mensaje,
-            "timeout": diagnostico.timeout,
-            "lineas_debug": _lineas_debug_nvidia(
-                diagnostico,
-                contexto,
-                respuesta,
-            ),
-        })
 
-        _imprimir_lineas_debug(metricas["lineas_debug"])
-
-    return metricas
-
-
-def _lineas_debug_nvidia(
-    diagnostico: DiagnosticoNvidia,
-    contexto: str,
-    respuesta: str,
-) -> list[str]:
-    estado_respuesta = "OK"
-
-    if respuesta.startswith(ERROR_NVIDIA):
-        estado_respuesta = diagnostico.mensaje or "Error"
-
-    return [
-        "[IA DEBUG]",
-        "Proveedor seleccionado:",
-        "NVIDIA",
-        "API KEY:",
-        "Detectada" if diagnostico.api_detectada else "No detectada",
-        "Contexto:",
-        f"{len(contexto)} caracteres",
-        "Tiempo NVIDIA:",
-        f"{diagnostico.tiempo:.2f} s",
-        "HTTP:",
-        str(diagnostico.http if diagnostico.http is not None else "Sin respuesta"),
-        "Respuesta:",
-        estado_respuesta,
-    ]
-
-
-def _imprimir_debug_fallback() -> None:
-    print("[IA DEBUG]")
-    print("NVIDIA fallo, iniciando Ollama")
-
-
-def _imprimir_lineas_debug(lineas: list[str]) -> None:
-    for linea in lineas:
-        print(linea)
-
-
-def _combinar_metricas_fallback(
-    metricas_nvidia: dict[str, Any],
-    metricas_ollama: dict[str, Any],
+def _metricas_error_final(
+    errores: list[RespuestaIA],
+    intentos: list[str],
+    tiempo_contexto: float,
+    debug: bool,
 ) -> dict[str, Any]:
-    if not metricas_nvidia:
-        return metricas_ollama
+    if not debug:
+        return {}
 
-    if not metricas_ollama:
-        return metricas_nvidia
+    return {
+        "proveedor": "ninguno",
+        "tiempo_contexto": tiempo_contexto,
+        "fallback": len(errores) > 1,
+        "intentos": list(intentos),
+        "errores": [_resumen_error(error) for error in errores],
+    }
 
-    combinadas = dict(metricas_ollama)
-    combinadas["nvidia"] = metricas_nvidia
-    return combinadas
+
+def _resumen_error(respuesta: RespuestaIA) -> dict[str, Any]:
+    return {
+        "proveedor": respuesta.proveedor,
+        "modelo": respuesta.modelo,
+        "tipo_error": respuesta.tipo_error,
+        "latencia": respuesta.latencia,
+        "codigo_estado": respuesta.codigo_estado,
+    }
 
 
-def _mensaje_error_final(error_principal: str, error_fallback: str) -> str:
-    if error_fallback:
-        return error_fallback
+def _con_metricas(respuesta: RespuestaIA, metricas: dict[str, Any]) -> RespuestaIA:
+    if not metricas:
+        return respuesta
 
-    return error_principal or "No pude usar IA en este momento."
+    diagnostico = dict(respuesta.diagnostico)
+    diagnostico.update(metricas)
+
+    return RespuestaIA(
+        texto=respuesta.texto,
+        proveedor=respuesta.proveedor,
+        modelo=respuesta.modelo,
+        error=respuesta.error,
+        tipo_error=respuesta.tipo_error,
+        latencia=respuesta.latencia,
+        codigo_estado=respuesta.codigo_estado,
+        diagnostico=diagnostico,
+    )
+
+
+def _mensaje_error_final(errores: list[RespuestaIA]) -> str:
+    if not errores:
+        return "No hay proveedores de IA disponibles."
+
+    return errores[-1].texto or "No pude usar IA en este momento."
+
+
+def _orden_desde_legacy(proveedor: str, fallback_local: Any) -> list[str]:
+    if proveedor == "ollama":
+        return ["ollama"]
+
+    if proveedor == "groq":
+        return ["groq", "ollama"] if bool(fallback_local) else ["groq"]
+
+    return ["groq", "ollama"]
+
+
+def _normalizar_orden(orden: Any) -> list[str]:
+    if not isinstance(orden, list):
+        orden = ["groq", "ollama"]
+
+    resultado: list[str] = []
+
+    for proveedor in orden:
+        nombre = str(proveedor or "").lower()
+
+        if nombre and nombre not in resultado:
+            resultado.append(nombre)
+
+    return resultado or ["groq", "ollama"]
+
+
+def _config_dict(valor: Any) -> dict[str, Any]:
+    return valor if isinstance(valor, dict) else {}
 
 
 def _numero_config(valor: Any, defecto: float) -> float:

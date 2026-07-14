@@ -31,8 +31,7 @@ class EstabilizacionMemoriaTests(unittest.TestCase):
             "modo": "normal",
             "ia": {
                 "activada": True,
-                "proveedor": "nvidia",
-                "fallback_local": True,
+                "router": {"orden_proveedores": ["groq", "ollama"]},
                 "limite_contexto": 900,
                 "max_turnos": 3,
             },
@@ -174,7 +173,7 @@ class EstabilizacionMemoriaTests(unittest.TestCase):
     @mock.patch("core.cerebro.generar_respuesta")
     def test_memoria_personal_no_cambia_en_conversacion_libre(self, generar):
         memoria = inicializar_memoria({})
-        generar.return_value = RespuestaProveedor("Respuesta libre", "nvidia")
+        generar.return_value = RespuestaProveedor("Respuesta libre", "groq")
         antes = copy.deepcopy(memoria["usuario"])
 
         procesar("dime algo interesante", memoria, self.config)

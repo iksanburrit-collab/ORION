@@ -1,0 +1,155 @@
+from __future__ import annotations
+
+"""
+Plantilla para agregar un proveedor nuevo a ORION.
+
+Pasos:
+1. Copia este archivo como ia/nuevo_proveedor.py.
+2. Implementa responder(solicitud: SolicitudIA) -> RespuestaIA.
+3. Registra el adaptador en ia/proveedor.py:
+   PROVEEDORES["nuevo"] = nuevo_proveedor.responder
+4. Agrega su configuracion en config["ia"]["proveedores"].
+5. Prueba con mocks, sin llamadas reales ni claves en el repositorio.
+"""
+
+import json
+import os
+import socket
+import time
+from urllib import error, request
+
+from ia.contratos import RespuestaIA, SolicitudIA
+
+
+PROVEEDOR = "nuevo"
+ENDPOINT = "https://api.ejemplo.com/v1/chat/completions"
+
+
+def responder(solicitud: SolicitudIA) -> RespuestaIA:
+    inicio = time.perf_counter()
+    api_key = os.getenv("NUEVO_PROVEEDOR_API_KEY")
+
+    if not api_key:
+        return _error("Falta configurar la API key.", solicitud, "api_key_ausente", inicio)
+
+    payload = {
+        "model": solicitud.modelo,
+        "messages": [
+            {"role": "system", "content": solicitud.contexto},
+            {"role": "user", "content": solicitud.mensaje},
+        ],
+        "stream": False,
+        "max_tokens": solicitud.limite_salida,
+    }
+    peticion = request.Request(
+        ENDPOINT,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+
+    try:
+        with request.urlopen(peticion, timeout=solicitud.timeout) as respuesta:
+            cuerpo = respuesta.read().decode("utf-8")
+            codigo_estado = getattr(respuesta, "status", None) or respuesta.getcode()
+    except error.HTTPError as exc:
+        return _error_http(exc, solicitud, inicio)
+    except (TimeoutError, socket.timeout):
+        return _error(
+            "El proveedor tardo demasiado.",
+            solicitud,
+            "timeout",
+            inicio,
+            codigo_estado="Timeout",
+        )
+    except (error.URLError, ConnectionError, OSError):
+        return _error("No hubo conexion con el proveedor.", solicitud, "sin_conexion", inicio)
+
+    try:
+        datos = json.loads(cuerpo)
+        texto = datos["choices"][0]["message"]["content"].strip()
+    except (KeyError, IndexError, TypeError, json.JSONDecodeError):
+        return _error(
+            "El proveedor devolvio formato inesperado.",
+            solicitud,
+            "formato_inesperado",
+            inicio,
+            codigo_estado=codigo_estado,
+        )
+
+    if not texto:
+        return _error(
+            "El proveedor devolvio una respuesta vacia.",
+            solicitud,
+            "respuesta_vacia",
+            inicio,
+            codigo_estado=codigo_estado,
+        )
+
+    return RespuestaIA(
+        texto=texto,
+        proveedor=PROVEEDOR,
+        modelo=solicitud.modelo,
+        error=False,
+        latencia=round(time.perf_counter() - inicio, 4),
+        codigo_estado=codigo_estado,
+        diagnostico={"endpoint": ENDPOINT},
+    )
+
+
+def _error_http(
+    exc: error.HTTPError,
+    solicitud: SolicitudIA,
+    inicio: float,
+) -> RespuestaIA:
+    tipo_error = "http_error"
+
+    if exc.code == 401:
+        tipo_error = "credenciales_invalidas"
+    elif exc.code == 429:
+        tipo_error = "limite_uso"
+    elif exc.code == 404:
+        tipo_error = "modelo_no_disponible"
+
+    return _error(
+        f"HTTP {exc.code}.",
+        solicitud,
+        tipo_error,
+        inicio,
+        codigo_estado=exc.code,
+    )
+
+
+def _error(
+    mensaje: str,
+    solicitud: SolicitudIA,
+    tipo_error: str,
+    inicio: float,
+    codigo_estado: int | str | None = None,
+) -> RespuestaIA:
+    return RespuestaIA(
+        texto=f"No pude usar {PROVEEDOR}: {mensaje}",
+        proveedor=PROVEEDOR,
+        modelo=solicitud.modelo,
+        error=True,
+        tipo_error=tipo_error,
+        latencia=round(time.perf_counter() - inicio, 4),
+        codigo_estado=codigo_estado,
+        diagnostico={"endpoint": ENDPOINT},
+    )
+
+
+# Ejemplo de prueba con mocks:
+#
+# @mock.patch.dict(os.environ, {"NUEVO_PROVEEDOR_API_KEY": "clave-prueba"})
+# @mock.patch("ia.nuevo_proveedor.request.urlopen")
+# def test_nuevo_proveedor_responde(urlopen):
+#     urlopen.return_value = RespuestaHTTPFalsa(
+#         b'{"choices":[{"message":{"content":"ok"}}]}'
+#     )
+#     respuesta = responder(SolicitudIA("hola", modelo="modelo"))
+#     assert not respuesta.error
+

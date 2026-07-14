@@ -238,16 +238,12 @@ def _resolver_ia(
     )
 
     resultado.respuesta = respuesta.texto
-    resultado.debug = respuesta.metricas or None
+    resultado.debug = respuesta.diagnostico or None
 
     if respuesta.error:
         resultado.accion = "error_ia"
-    elif respuesta.proveedor == "nvidia":
-        resultado.accion = "respuesta_ia_nvidia"
-    elif respuesta.proveedor == "ollama":
-        resultado.accion = "respuesta_ia_ollama"
     else:
-        resultado.accion = "respuesta_ia"
+        resultado.accion = f"respuesta_ia_{respuesta.proveedor}"
 
     if not respuesta.error:
         registrar_turno_conversacion(

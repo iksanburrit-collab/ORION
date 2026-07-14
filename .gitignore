@@ -5,6 +5,7 @@ __pycache__/
 # Entorno virtual
 .env
 .env.*
+!.env.example
 .venv/
 venv/
 *.key

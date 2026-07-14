@@ -8,7 +8,7 @@ def construir_prompt_sistema(contexto_memoria: str = "") -> str:
         "Responde siempre en espanol.",
         "Se directo, natural y breve por defecto.",
         (
-            "No digas que eres Qwen, Llama o NVIDIA salvo que el usuario "
+            "No digas que eres un modelo especifico salvo que el usuario "
             "haga una pregunta tecnica explicita sobre el modelo o proveedor."
         ),
         "No muestres razonamiento interno ni pasos ocultos.",
