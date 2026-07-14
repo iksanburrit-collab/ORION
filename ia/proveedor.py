@@ -5,7 +5,11 @@ import time
 from typing import Any
 
 from core.memoria import construir_contexto_para_ia
-from ia.nvidia import ERROR_NVIDIA, generar_respuesta_nvidia
+from ia.nvidia import (
+    ERROR_NVIDIA,
+    DiagnosticoNvidia,
+    generar_respuesta_nvidia_diagnostico,
+)
 from ia.ollama import ERROR_OLLAMA, generar_respuesta as generar_respuesta_ollama
 
 
@@ -53,6 +57,9 @@ def generar_respuesta(
             return respuesta
 
         if config_ia["fallback_local"]:
+            if config_ia["debug_rendimiento"]:
+                _imprimir_debug_fallback()
+
             fallback = _responder_ollama(
                 mensaje,
                 contexto,
@@ -62,13 +69,24 @@ def generar_respuesta(
             )
 
             if not fallback.error:
-                return fallback
+                return RespuestaProveedor(
+                    fallback.texto,
+                    fallback.proveedor,
+                    error=False,
+                    metricas=_combinar_metricas_fallback(
+                        respuesta.metricas,
+                        fallback.metricas,
+                    ),
+                )
 
             return RespuestaProveedor(
                 _mensaje_error_final(respuesta.texto, fallback.texto),
                 "ninguno",
                 error=True,
-                metricas=fallback.metricas,
+                metricas=_combinar_metricas_fallback(
+                    respuesta.metricas,
+                    fallback.metricas,
+                ),
             )
 
         return respuesta
@@ -146,8 +164,7 @@ def _responder_nvidia(
     config_ia: dict[str, Any],
     tiempo_contexto: float,
 ) -> RespuestaProveedor:
-    inicio = time.perf_counter()
-    respuesta = generar_respuesta_nvidia(
+    diagnostico = generar_respuesta_nvidia_diagnostico(
         mensaje,
         contexto=contexto,
         historial=historial,
@@ -155,21 +172,24 @@ def _responder_nvidia(
         timeout=config_ia["nvidia"]["timeout"],
         max_tokens=config_ia["nvidia"]["max_tokens"],
     )
-    tiempo_respuesta = time.perf_counter() - inicio
+    respuesta = diagnostico.texto
+    tiempo_respuesta = diagnostico.tiempo
     error = respuesta.startswith(ERROR_NVIDIA)
+    metricas = _metricas(
+        "nvidia",
+        contexto,
+        respuesta,
+        tiempo_contexto,
+        tiempo_respuesta,
+        config_ia,
+        diagnostico=diagnostico,
+    )
 
     return RespuestaProveedor(
         respuesta,
         "nvidia",
         error=error,
-        metricas=_metricas(
-            "nvidia",
-            contexto,
-            respuesta,
-            tiempo_contexto,
-            tiempo_respuesta,
-            config_ia,
-        ),
+        metricas=metricas,
     )
 
 
@@ -217,17 +237,89 @@ def _metricas(
     tiempo_contexto: float,
     tiempo_respuesta: float,
     config_ia: dict[str, Any],
+    diagnostico: DiagnosticoNvidia | None = None,
 ) -> dict[str, Any]:
     if not config_ia.get("debug_rendimiento"):
         return {}
 
-    return {
+    metricas = {
         "proveedor": proveedor,
         "tiempo_contexto": round(tiempo_contexto, 4),
         "tiempo_respuesta": round(tiempo_respuesta, 4),
         "longitud_contexto": len(contexto),
         "longitud_respuesta": len(respuesta),
     }
+
+    if diagnostico is not None:
+        metricas.update({
+            "endpoint": diagnostico.endpoint,
+            "modelo": diagnostico.modelo,
+            "api_detectada": diagnostico.api_detectada,
+            "http": diagnostico.http,
+            "mensaje": diagnostico.mensaje,
+            "timeout": diagnostico.timeout,
+            "lineas_debug": _lineas_debug_nvidia(
+                diagnostico,
+                contexto,
+                respuesta,
+            ),
+        })
+
+        _imprimir_lineas_debug(metricas["lineas_debug"])
+
+    return metricas
+
+
+def _lineas_debug_nvidia(
+    diagnostico: DiagnosticoNvidia,
+    contexto: str,
+    respuesta: str,
+) -> list[str]:
+    estado_respuesta = "OK"
+
+    if respuesta.startswith(ERROR_NVIDIA):
+        estado_respuesta = diagnostico.mensaje or "Error"
+
+    return [
+        "[IA DEBUG]",
+        "Proveedor seleccionado:",
+        "NVIDIA",
+        "API KEY:",
+        "Detectada" if diagnostico.api_detectada else "No detectada",
+        "Contexto:",
+        f"{len(contexto)} caracteres",
+        "Tiempo NVIDIA:",
+        f"{diagnostico.tiempo:.2f} s",
+        "HTTP:",
+        str(diagnostico.http if diagnostico.http is not None else "Sin respuesta"),
+        "Respuesta:",
+        estado_respuesta,
+    ]
+
+
+def _imprimir_debug_fallback() -> None:
+    print("[IA DEBUG]")
+    print("NVIDIA fallo, iniciando Ollama")
+
+
+def _imprimir_lineas_debug(lineas: list[str]) -> None:
+    for linea in lineas:
+        print(linea)
+
+
+def _combinar_metricas_fallback(
+    metricas_nvidia: dict[str, Any],
+    metricas_ollama: dict[str, Any],
+) -> dict[str, Any]:
+    if not metricas_nvidia:
+        return metricas_ollama
+
+    if not metricas_ollama:
+        return metricas_nvidia
+
+    combinadas = dict(metricas_ollama)
+    combinadas["nvidia"] = metricas_nvidia
+    return combinadas
 
 
 def _mensaje_error_final(error_principal: str, error_fallback: str) -> str:

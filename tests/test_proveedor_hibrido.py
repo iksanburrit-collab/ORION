@@ -16,13 +16,20 @@ sys.path.insert(0, str(RAIZ))
 from core.cerebro import procesar
 from core.intenciones import detectar_intencion
 from core.memoria import VERSION_MEMORIA, inicializar_memoria
-from ia.nvidia import ERROR_NVIDIA, NVIDIA_URL, generar_respuesta_nvidia
+from ia.nvidia import (
+    ERROR_NVIDIA,
+    NVIDIA_URL,
+    DiagnosticoNvidia,
+    generar_respuesta_nvidia,
+    generar_respuesta_nvidia_diagnostico,
+)
 from ia.proveedor import generar_respuesta
 
 
 class RespuestaHTTPFalsa:
-    def __init__(self, cuerpo):
+    def __init__(self, cuerpo, status=200):
         self.cuerpo = cuerpo
+        self.status = status
 
     def __enter__(self):
         return self
@@ -32,6 +39,9 @@ class RespuestaHTTPFalsa:
 
     def read(self):
         return self.cuerpo
+
+    def getcode(self):
+        return self.status
 
 
 class ProveedorHibridoTests(unittest.TestCase):
@@ -91,7 +101,24 @@ class ProveedorHibridoTests(unittest.TestCase):
         self.assertFalse(payload["stream"])
         self.assertEqual(payload["max_tokens"], 180)
         self.assertIn("Bearer ", solicitud.headers["Authorization"])
+        self.assertEqual(urlopen.call_args.kwargs["timeout"], 7)
         self.assertNotIn("clave-prueba", respuesta)
+
+    @mock.patch.dict(os.environ, {"NVIDIA_API_KEY": "clave-prueba"})
+    @mock.patch("ia.nvidia.request.urlopen")
+    def test_diagnostico_nvidia_incluye_http_y_tiempo(self, urlopen):
+        urlopen.return_value = RespuestaHTTPFalsa(
+            b'{"choices":[{"message":{"content":"Respuesta NVIDIA"}}]}'
+        )
+
+        diagnostico = generar_respuesta_nvidia_diagnostico("hola", timeout=3)
+
+        self.assertEqual(diagnostico.http, 200)
+        self.assertEqual(diagnostico.mensaje, "OK")
+        self.assertEqual(diagnostico.endpoint, NVIDIA_URL)
+        self.assertTrue(diagnostico.api_detectada)
+        self.assertEqual(diagnostico.timeout, 3)
+        self.assertEqual(diagnostico.texto, "Respuesta NVIDIA")
 
     @mock.patch.dict(os.environ, {}, clear=True)
     def test_nvidia_api_key_ausente(self):
@@ -137,9 +164,18 @@ class ProveedorHibridoTests(unittest.TestCase):
         self.assertIn("vacia", generar_respuesta_nvidia("hola"))
 
     @mock.patch("ia.proveedor.generar_respuesta_ollama")
-    @mock.patch("ia.proveedor.generar_respuesta_nvidia")
+    @mock.patch("ia.proveedor.generar_respuesta_nvidia_diagnostico")
     def test_nvidia_responde_y_ollama_no_se_llama(self, nvidia, ollama):
-        nvidia.return_value = "Respuesta principal"
+        nvidia.return_value = DiagnosticoNvidia(
+            texto="Respuesta principal",
+            endpoint=NVIDIA_URL,
+            modelo="modelo",
+            api_detectada=True,
+            http=200,
+            mensaje="OK",
+            tiempo=0.1,
+            timeout=25,
+        )
 
         respuesta = generar_respuesta("hola", self.memoria, self.config)
 
@@ -148,9 +184,18 @@ class ProveedorHibridoTests(unittest.TestCase):
         ollama.assert_not_called()
 
     @mock.patch("ia.proveedor.generar_respuesta_ollama")
-    @mock.patch("ia.proveedor.generar_respuesta_nvidia")
+    @mock.patch("ia.proveedor.generar_respuesta_nvidia_diagnostico")
     def test_nvidia_falla_y_ollama_responde(self, nvidia, ollama):
-        nvidia.return_value = "No pude usar NVIDIA Cloud: sin red."
+        nvidia.return_value = DiagnosticoNvidia(
+            texto="No pude usar NVIDIA Cloud: sin red.",
+            endpoint=NVIDIA_URL,
+            modelo="modelo",
+            api_detectada=True,
+            http=None,
+            mensaje="sin red",
+            tiempo=0.1,
+            timeout=25,
+        )
         ollama.return_value = "Respuesta local"
 
         respuesta = generar_respuesta("hola", self.memoria, self.config)
@@ -159,9 +204,18 @@ class ProveedorHibridoTests(unittest.TestCase):
         self.assertEqual(respuesta.texto, "Respuesta local")
 
     @mock.patch("ia.proveedor.generar_respuesta_ollama")
-    @mock.patch("ia.proveedor.generar_respuesta_nvidia")
+    @mock.patch("ia.proveedor.generar_respuesta_nvidia_diagnostico")
     def test_ambos_fallan_controlado(self, nvidia, ollama):
-        nvidia.return_value = "No pude usar NVIDIA Cloud: sin red."
+        nvidia.return_value = DiagnosticoNvidia(
+            texto="No pude usar NVIDIA Cloud: sin red.",
+            endpoint=NVIDIA_URL,
+            modelo="modelo",
+            api_detectada=True,
+            http=None,
+            mensaje="sin red",
+            tiempo=0.1,
+            timeout=25,
+        )
         ollama.return_value = "No pude usar Ollama: sin servicio."
 
         respuesta = generar_respuesta("hola", self.memoria, self.config)
@@ -170,7 +224,7 @@ class ProveedorHibridoTests(unittest.TestCase):
         self.assertEqual(respuesta.proveedor, "ninguno")
 
     @mock.patch("ia.proveedor.generar_respuesta_ollama")
-    @mock.patch("ia.proveedor.generar_respuesta_nvidia")
+    @mock.patch("ia.proveedor.generar_respuesta_nvidia_diagnostico")
     def test_proveedor_ollama_usa_ollama_directo(self, nvidia, ollama):
         self.config["ia"]["proveedor"] = "ollama"
         ollama.return_value = "Respuesta local"

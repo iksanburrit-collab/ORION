@@ -61,6 +61,25 @@ def guardar_config():
     guardar_json("config.json", config)
 
 
+def mostrar_debug_ia(debug):
+    if not debug:
+        return
+
+    if debug.get("lineas_debug") or debug.get("nvidia", {}).get("lineas_debug"):
+        return
+
+    proveedor = str(debug.get("proveedor", "")).upper()
+    tiempo = debug.get("tiempo_respuesta")
+
+    print("[IA DEBUG]")
+    print("Proveedor:")
+    print(proveedor or "Desconocido")
+
+    if tiempo is not None:
+        print("Tiempo:")
+        print(f"{tiempo:.2f} s")
+
+
 while True:
     comando = normalizar_comando(input("\nORION> "))
     resultado = procesar(
@@ -78,8 +97,7 @@ while True:
     if resultado.respuesta:
         print(resultado.respuesta)
 
-    if resultado.debug:
-        print(f"[IA debug] {resultado.debug}")
+    mostrar_debug_ia(resultado.debug)
 
     solicitud = resultado.solicitud
     if solicitud:

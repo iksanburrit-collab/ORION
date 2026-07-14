@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import json
 import os
 import socket
+import time
 from typing import Any
 from urllib import error, request
 
@@ -14,6 +16,18 @@ MODELO_PREDETERMINADO = "meta/llama-4-maverick-17b-128e-instruct"
 ERROR_NVIDIA = "No pude usar NVIDIA Cloud:"
 
 
+@dataclass(frozen=True)
+class DiagnosticoNvidia:
+    texto: str
+    endpoint: str
+    modelo: str
+    api_detectada: bool
+    http: int | str | None
+    mensaje: str
+    tiempo: float
+    timeout: float
+
+
 def generar_respuesta_nvidia(
     mensaje: str,
     contexto: str = "",
@@ -21,17 +35,67 @@ def generar_respuesta_nvidia(
     modelo: str = MODELO_PREDETERMINADO,
     timeout: float = 25.0,
     max_tokens: int = 180,
-) -> str:
+) -> str | DiagnosticoNvidia:
+    return _generar_respuesta_nvidia(
+        mensaje,
+        contexto=contexto,
+        historial=historial,
+        modelo=modelo,
+        timeout=timeout,
+        max_tokens=max_tokens,
+        diagnostico=False,
+    )
+
+
+def generar_respuesta_nvidia_diagnostico(
+    mensaje: str,
+    contexto: str = "",
+    historial: list[dict[str, str]] | None = None,
+    modelo: str = MODELO_PREDETERMINADO,
+    timeout: float = 25.0,
+    max_tokens: int = 180,
+) -> DiagnosticoNvidia:
+    return _generar_respuesta_nvidia(
+        mensaje,
+        contexto=contexto,
+        historial=historial,
+        modelo=modelo,
+        timeout=timeout,
+        max_tokens=max_tokens,
+        diagnostico=True,
+    )
+
+
+def _generar_respuesta_nvidia(
+    mensaje: str,
+    contexto: str = "",
+    historial: list[dict[str, str]] | None = None,
+    modelo: str = MODELO_PREDETERMINADO,
+    timeout: float = 25.0,
+    max_tokens: int = 180,
+    diagnostico: bool = False,
+) -> str | DiagnosticoNvidia:
+    inicio = time.perf_counter()
     api_key = os.getenv("NVIDIA_API_KEY")
+    modelo_usado = modelo or MODELO_PREDETERMINADO
 
     if not api_key:
-        return f"{ERROR_NVIDIA} falta configurar NVIDIA_API_KEY."
+        return _resultado(
+            f"{ERROR_NVIDIA} falta configurar NVIDIA_API_KEY.",
+            modelo_usado,
+            False,
+            None,
+            "falta configurar NVIDIA_API_KEY",
+            inicio,
+            timeout,
+            diagnostico,
+        )
 
     payload = _crear_payload(
         mensaje,
         contexto,
         historial,
-        modelo,
+        modelo_usado,
         max_tokens,
     )
     datos = json.dumps(payload).encode("utf-8")
@@ -49,24 +113,103 @@ def generar_respuesta_nvidia(
     try:
         with request.urlopen(solicitud, timeout=timeout) as respuesta:
             cuerpo = respuesta.read().decode("utf-8")
+            http = getattr(respuesta, "status", None) or respuesta.getcode()
     except error.HTTPError as exc:
-        return _mensaje_error_http(exc)
+        mensaje_error, detalle = _mensaje_error_http(exc)
+        return _resultado(
+            mensaje_error,
+            modelo_usado,
+            True,
+            exc.code,
+            detalle,
+            inicio,
+            timeout,
+            diagnostico,
+        )
     except (TimeoutError, socket.timeout):
-        return f"{ERROR_NVIDIA} la respuesta tardo demasiado."
-    except (error.URLError, ConnectionError, OSError):
-        return f"{ERROR_NVIDIA} no pude conectar con el servicio."
+        return _resultado(
+            f"{ERROR_NVIDIA} la respuesta tardo demasiado.",
+            modelo_usado,
+            True,
+            "Timeout",
+            "timeout",
+            inicio,
+            timeout,
+            diagnostico,
+        )
+    except error.URLError as exc:
+        if _es_timeout(exc):
+            return _resultado(
+                f"{ERROR_NVIDIA} la respuesta tardo demasiado.",
+                modelo_usado,
+                True,
+                "Timeout",
+                "timeout",
+                inicio,
+                timeout,
+                diagnostico,
+            )
+
+        return _resultado(
+            f"{ERROR_NVIDIA} no pude conectar con el servicio.",
+            modelo_usado,
+            True,
+            None,
+            str(exc.reason),
+            inicio,
+            timeout,
+            diagnostico,
+        )
+    except (ConnectionError, OSError) as exc:
+        return _resultado(
+            f"{ERROR_NVIDIA} no pude conectar con el servicio.",
+            modelo_usado,
+            True,
+            None,
+            str(exc),
+            inicio,
+            timeout,
+            diagnostico,
+        )
 
     try:
         datos_respuesta = json.loads(cuerpo)
     except json.JSONDecodeError:
-        return f"{ERROR_NVIDIA} la respuesta no fue JSON valido."
+        return _resultado(
+            f"{ERROR_NVIDIA} la respuesta no fue JSON valido.",
+            modelo_usado,
+            True,
+            http,
+            "JSON invalido",
+            inicio,
+            timeout,
+            diagnostico,
+        )
 
     contenido = _extraer_contenido(datos_respuesta)
 
     if not contenido:
-        return f"{ERROR_NVIDIA} NVIDIA devolvio una respuesta vacia."
+        return _resultado(
+            f"{ERROR_NVIDIA} NVIDIA devolvio una respuesta vacia.",
+            modelo_usado,
+            True,
+            http,
+            "respuesta vacia",
+            inicio,
+            timeout,
+            diagnostico,
+        )
 
-    return contenido
+    return _resultado(
+        contenido,
+        modelo_usado,
+        True,
+        http,
+        "OK",
+        inicio,
+        timeout,
+        diagnostico,
+    )
 
 
 def _crear_payload(
@@ -132,17 +275,83 @@ def _extraer_contenido(datos: Any) -> str:
     return content.strip()
 
 
-def _mensaje_error_http(exc: error.HTTPError) -> str:
+def _mensaje_error_http(exc: error.HTTPError) -> tuple[str, str]:
+    detalle = _leer_detalle_http(exc)
+
     if exc.code == 401:
-        return f"{ERROR_NVIDIA} credenciales invalidas."
+        return f"{ERROR_NVIDIA} credenciales invalidas. HTTP 401. {detalle}".strip(), detalle
 
     if exc.code in {402, 403}:
-        return f"{ERROR_NVIDIA} la cuenta no tiene acceso suficiente."
+        return (
+            f"{ERROR_NVIDIA} la cuenta no tiene acceso suficiente. "
+            f"HTTP {exc.code}. {detalle}"
+        ).strip(), detalle
 
     if exc.code == 429:
-        return f"{ERROR_NVIDIA} limite de uso alcanzado."
+        return f"{ERROR_NVIDIA} limite de uso alcanzado. HTTP 429. {detalle}".strip(), detalle
 
     if 500 <= exc.code <= 599:
-        return f"{ERROR_NVIDIA} el servicio tuvo un problema temporal."
+        return (
+            f"{ERROR_NVIDIA} el servicio tuvo un problema temporal. "
+            f"HTTP {exc.code}. {detalle}"
+        ).strip(), detalle
 
-    return f"{ERROR_NVIDIA} NVIDIA respondio con HTTP {exc.code}."
+    return (
+        f"{ERROR_NVIDIA} NVIDIA respondio con HTTP {exc.code}. {detalle}"
+    ).strip(), detalle
+
+
+def _leer_detalle_http(exc: error.HTTPError) -> str:
+    try:
+        cuerpo = exc.read().decode("utf-8")
+    except (OSError, UnicodeDecodeError):
+        return str(getattr(exc, "reason", "") or "")
+
+    try:
+        datos = json.loads(cuerpo)
+    except json.JSONDecodeError:
+        return cuerpo[:300]
+
+    if not isinstance(datos, dict):
+        return cuerpo[:300]
+
+    detalle = datos.get("error") or datos.get("message") or datos
+
+    if isinstance(detalle, dict):
+        detalle = detalle.get("message") or detalle.get("detail") or detalle
+
+    return str(detalle)[:300]
+
+
+def _es_timeout(exc: error.URLError) -> bool:
+    razon = getattr(exc, "reason", None)
+
+    if isinstance(razon, socket.timeout):
+        return True
+
+    return "timed out" in str(razon).lower() or "timeout" in str(razon).lower()
+
+
+def _resultado(
+    texto: str,
+    modelo: str,
+    api_detectada: bool,
+    http: int | str | None,
+    mensaje: str,
+    inicio: float,
+    timeout: float,
+    diagnostico: bool,
+) -> str | DiagnosticoNvidia:
+    if not diagnostico:
+        return texto
+
+    return DiagnosticoNvidia(
+        texto=texto,
+        endpoint=NVIDIA_URL,
+        modelo=modelo,
+        api_detectada=api_detectada,
+        http=http,
+        mensaje=mensaje,
+        tiempo=round(time.perf_counter() - inicio, 4),
+        timeout=timeout,
+    )
