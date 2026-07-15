@@ -26,6 +26,7 @@ from ia.proveedor import (
 )
 from utilidades.archivos import guardar_json
 from utilidades.configuracion import cargar_configuracion
+from utilidades.rutas import configurar_base_datos
 
 
 class RespuestaHTTPFalsa:
@@ -70,6 +71,7 @@ def respuesta_error(proveedor: str, tipo_error: str = "sin_conexion") -> Respues
 class ProveedorHibridoTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
+        configurar_base_datos(self.tmp.name)
         self.cwd_original = os.getcwd()
         os.chdir(self.tmp.name)
         self.memoria = inicializar_memoria({})
@@ -103,6 +105,7 @@ class ProveedorHibridoTests(unittest.TestCase):
         }
 
     def tearDown(self):
+        configurar_base_datos(None)
         os.chdir(self.cwd_original)
         self.tmp.cleanup()
 

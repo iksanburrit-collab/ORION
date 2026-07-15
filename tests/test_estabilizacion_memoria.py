@@ -20,11 +20,13 @@ from core.memoria import (
 )
 from ia.prompts import construir_prompt_sistema
 from ia.proveedor import RespuestaProveedor
+from utilidades.rutas import configurar_base_datos
 
 
 class EstabilizacionMemoriaTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
+        configurar_base_datos(self.tmp.name)
         self.cwd_original = os.getcwd()
         os.chdir(self.tmp.name)
         self.config = {
@@ -38,6 +40,7 @@ class EstabilizacionMemoriaTests(unittest.TestCase):
         }
 
     def tearDown(self):
+        configurar_base_datos(None)
         os.chdir(self.cwd_original)
         self.tmp.cleanup()
 

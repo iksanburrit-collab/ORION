@@ -214,9 +214,6 @@ def _respuesta_http(
         "mensaje_groq": mensaje_groq,
     }
 
-    if debug:
-        _imprimir_debug_http(exc.code, cuerpo_json, mensaje_groq)
-
     return _respuesta_error(
         mensaje,
         modelo,
@@ -297,21 +294,6 @@ def _sanitizar_json(valor: Any) -> Any:
         return _detalle_seguro(valor)
 
     return valor
-
-
-def _imprimir_debug_http(
-    codigo_estado: int,
-    cuerpo_json: Any,
-    mensaje_groq: str,
-) -> None:
-    print("[GROQ DEBUG]")
-    print(f"HTTP: {codigo_estado}")
-    print("Cuerpo JSON de error:")
-    print(json.dumps(cuerpo_json, ensure_ascii=False))
-
-    if mensaje_groq:
-        print("Mensaje Groq:")
-        print(mensaje_groq)
 
 
 def _es_timeout(exc: error.URLError) -> bool:

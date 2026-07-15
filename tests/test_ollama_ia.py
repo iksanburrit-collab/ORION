@@ -17,6 +17,7 @@ from core.cerebro import procesar
 from core.memoria import inicializar_memoria
 from ia.ollama import ERROR_OLLAMA, generar_respuesta
 from ia.proveedor import RespuestaProveedor
+from utilidades.rutas import configurar_base_datos
 
 
 class RespuestaHTTPFalsa:
@@ -36,6 +37,7 @@ class RespuestaHTTPFalsa:
 class IntegracionOllamaTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
+        configurar_base_datos(self.tmp.name)
         self.cwd_original = os.getcwd()
         os.chdir(self.tmp.name)
         self.memoria = inicializar_memoria({})
@@ -50,6 +52,7 @@ class IntegracionOllamaTests(unittest.TestCase):
         }
 
     def tearDown(self):
+        configurar_base_datos(None)
         os.chdir(self.cwd_original)
         self.tmp.cleanup()
 

@@ -392,7 +392,7 @@ def _normalizar_orden(orden: Any) -> list[str]:
     for proveedor in orden:
         nombre = str(proveedor or "").lower()
 
-        if nombre and nombre not in resultado:
+        if nombre in PROVEEDORES and nombre not in resultado:
             resultado.append(nombre)
 
     return resultado or ["groq", "ollama"]

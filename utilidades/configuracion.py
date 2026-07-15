@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import copy
-import os
 from typing import Any
 
 from ia.proveedor import (
@@ -9,11 +8,29 @@ from ia.proveedor import (
     migrar_config_ia,
     requiere_migracion_config_ia,
 )
-from utilidades.archivos import cargar, guardar_json
+from utilidades.archivos import cargar_json, guardar_json
+from utilidades.rutas import ruta_configuracion
 
 
 CONFIG_PREDETERMINADA: dict[str, Any] = {
     "modo": "normal",
+    "memoria_conversacional": {
+        "activada": True,
+        "confianza_minima": 0.58,
+    },
+    "tareas": {
+        "maximo_mostradas": 20,
+    },
+    "sistema": {
+        "control_pc_activado": True,
+        "descubrimiento_aplicaciones": True,
+        "escaneo_ligero_inicio": False,
+        "confirmar_riesgo_medio": True,
+        "permitir_riesgo_alto": False,
+    },
+    "aplicaciones": {
+        "permitidas": [],
+    },
     "ia": {
         "activada": True,
         "router": {
@@ -53,14 +70,15 @@ CONFIG_PREDETERMINADA: dict[str, Any] = {
 
 
 def cargar_configuracion(
-    nombre: str,
+    nombre: str | None = None,
     defecto: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if defecto is None:
         defecto = CONFIG_PREDETERMINADA
 
-    existe = os.path.exists(nombre)
-    config = cargar(nombre, copy.deepcopy(defecto))
+    nombre = nombre or ruta_configuracion()
+    resultado = cargar_json(nombre, copy.deepcopy(defecto))
+    config = resultado.datos
 
     if not isinstance(config, dict):
         config = copy.deepcopy(defecto)
@@ -74,7 +92,10 @@ def cargar_configuracion(
     if not config_ia_migrada_correctamente(config):
         return config
 
-    if cambio or not existe:
+    if resultado.error:
+        return config
+
+    if cambio or not resultado.existe:
         guardar_json(nombre, config)
 
     return config
@@ -93,5 +114,7 @@ def _completar_defaults_superiores(
         if clave not in config:
             config[clave] = copy.deepcopy(valor)
             cambio = True
+        elif isinstance(config[clave], dict) and isinstance(valor, dict):
+            cambio = _completar_defaults_superiores(config[clave], valor) or cambio
 
     return cambio

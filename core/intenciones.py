@@ -11,6 +11,7 @@ Responsabilidades:
 def detectar_intencion(t):
 
     t = t.lower()
+    t = " ".join(t.split())
 
     if any(
         x in t
@@ -34,10 +35,28 @@ def detectar_intencion(t):
     if "edad" in t:
         return "edad"
 
-    if "hora" in t:
+    if t in {
+        "hora",
+        "que hora es",
+        "qué hora es",
+        "dime la hora",
+        "hora actual",
+    }:
         return "hora"
 
-    if "fecha" in t:
+    if t in {
+        "fecha",
+        "que fecha es",
+        "qué fecha es",
+        "que dia es hoy",
+        "qué dia es hoy",
+        "que día es hoy",
+        "qué día es hoy",
+        "dime la fecha",
+        "fecha actual",
+        "en que fecha estamos",
+        "en qué fecha estamos",
+    }:
         return "fecha"
 
     if "estado" in t:

@@ -12,17 +12,20 @@ from core.cerebro import procesar
 from core.conocimiento import clasificar_gusto, normalizar_para_busqueda
 from core.memoria import aprender, guardar_memoria, inicializar_memoria
 from utilidades.archivos import cargar
+from utilidades.rutas import configurar_base_datos
 
 
 class ClasificacionGustosTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
+        configurar_base_datos(self.tmp.name)
         self.cwd_original = os.getcwd()
         os.chdir(self.tmp.name)
         self.memoria = inicializar_memoria({})
         self.config = {"modo": "normal"}
 
     def tearDown(self):
+        configurar_base_datos(None)
         os.chdir(self.cwd_original)
         self.tmp.cleanup()
 

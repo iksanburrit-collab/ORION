@@ -21,6 +21,8 @@ config.json
 alias.json
 notas.json
 recordatorios.json
+datos/calendario_local.json
+datos/aplicaciones_usuario.json
 
 # Backups
 backup/

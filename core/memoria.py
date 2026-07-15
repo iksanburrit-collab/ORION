@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from datetime import datetime, timezone
+import hashlib
 import re
 from typing import Any
 
@@ -19,6 +20,7 @@ from core.conocimiento import (
     normalizar_para_busqueda,
 )
 from utilidades.archivos import guardar_json
+from utilidades.rutas import ruta_memoria
 
 
 MEMORIA_ARCHIVO = "memoria.json"
@@ -54,6 +56,7 @@ def inicializar_memoria(memoria: dict[str, Any] | None) -> dict[str, Any]:
     _asegurar_raiz(memoria)
     _migrar_memoria_legacy(memoria)
     _limpiar_memoria_funcional(memoria)
+    _actualizar_indice_memorias(memoria)
     _sincronizar_compatibilidad(memoria)
 
     return memoria
@@ -61,10 +64,10 @@ def inicializar_memoria(memoria: dict[str, Any] | None) -> dict[str, Any]:
 
 def guardar_memoria(
     memoria: dict[str, Any],
-    archivo: str = MEMORIA_ARCHIVO
+    archivo: str | None = None,
 ) -> None:
 
-    guardar_json(archivo, memoria)
+    guardar_json(archivo or ruta_memoria(), memoria)
 
 
 def aprender(
@@ -505,67 +508,65 @@ def olvidar_gusto(memoria: dict[str, Any], valor: str) -> bool:
     clasificacion = clasificar_gusto(valor)
     categoria = clasificacion.categoria
     valor_canonico = clasificacion.valor
-    candidatos = [valor, valor_canonico]
-    gustos = memoria.get("usuario", {}).get("gustos", {})
-    eliminado = False
-
-    categorias = [categoria] if categoria in gustos else list(gustos)
-
-    if categoria != "otros":
-        categorias.append("otros")
-
-    for categoria_actual in dict.fromkeys(categorias):
-        valores = gustos.get(categoria_actual)
-
-        if isinstance(valores, list):
-            eliminado = _eliminar_de_lista(valores, candidatos) or eliminado
-
-    _olvidar_preferencias(memoria, candidatos)
-    _olvidar_entidades(memoria, candidatos)
-
-    if eliminado:
-        registrar_episodio(
-            memoria,
-            "olvido",
-            valor,
-            categoria=categoria,
-            fuente="usuario",
-            confianza=CONFIANZA_USUARIO,
-        )
-
-    return eliminado
+    memoria_id = _buscar_id_memoria_activa(
+        memoria,
+        "gusto",
+        [valor, valor_canonico],
+        [categoria, "otros"],
+    )
+    return olvidar_memoria(memoria, memoria_id) if memoria_id else False
 
 
 def olvidar_aprendizaje(memoria: dict[str, Any], valor: str) -> bool:
     categoria, valor_canonico = clasificar_aprendizaje(valor)
-    candidatos = [valor, valor_canonico]
-    aprendizaje = memoria.get("aprendizaje", {})
-    eliminado = False
+    memoria_id = _buscar_id_memoria_activa(
+        memoria,
+        "aprendizaje",
+        [valor, valor_canonico],
+        [categoria, "otros"],
+    )
+    return olvidar_memoria(memoria, memoria_id) if memoria_id else False
 
-    categorias = [categoria] if categoria in aprendizaje else list(aprendizaje)
 
-    if categoria != "otros":
-        categorias.append("otros")
+def buscar_memoria(memoria: dict[str, Any], memoria_id: str) -> dict[str, Any] | None:
+    eventos = memoria.get("episodica", {}).get("eventos", [])
+    if not isinstance(eventos, list):
+        return None
 
-    for categoria_actual in dict.fromkeys(categorias):
-        valores = aprendizaje.get(categoria_actual)
+    for evento in eventos:
+        if isinstance(evento, dict) and str(evento.get("id", "")) == memoria_id:
+            return evento
+    return None
 
-        if isinstance(valores, list):
-            eliminado = _eliminar_de_lista(valores, candidatos) or eliminado
 
-    _olvidar_entidades(memoria, candidatos)
+def olvidar_memoria(memoria: dict[str, Any], memoria_id: str) -> bool:
+    return cambiar_estado_memoria(memoria, memoria_id, "olvidada")
 
-    if eliminado:
-        registrar_episodio(
-            memoria,
-            "olvido",
-            valor,
-            categoria=categoria,
-            fuente="usuario",
-            confianza=CONFIANZA_USUARIO,
-        )
 
-    return eliminado
+def eliminar_memoria(memoria: dict[str, Any], memoria_id: str) -> bool:
+    return cambiar_estado_memoria(memoria, memoria_id, "eliminada")
+
+
+def cambiar_estado_memoria(
+    memoria: dict[str, Any],
+    memoria_id: str,
+    estado: str,
+) -> bool:
+    if estado not in {"olvidada", "eliminada"}:
+        return False
+
+    evento = buscar_memoria(memoria, memoria_id)
+    if not evento or evento.get("tipo") == "olvido":
+        return False
+    if evento.get("estado") == "eliminada":
+        return False
+    if evento.get("estado") == estado:
+        return False
+
+    evento["estado"] = estado
+    evento["actualizada_en"] = _fecha_iso()
+    _retirar_memoria_de_estructuras(memoria, evento)
+    return True
 
 
 def cambiar_objetivo(memoria: dict[str, Any], valor: str) -> bool:
@@ -601,10 +602,14 @@ def registrar_episodio(
         return False
 
     episodio = {
+        "id": _id_memoria(tipo, categoria, contenido_limpio),
         "tipo": tipo,
         "contenido": contenido_limpio,
         "categoria": categoria or "otros",
         "fecha": fecha or _fecha_iso(),
+        "creada_en": fecha or _fecha_iso(),
+        "actualizada_en": fecha or _fecha_iso(),
+        "estado": "activa",
         "fuente": _normalizar_fuente(fuente),
         "confianza": _normalizar_confianza(confianza),
     }
@@ -636,6 +641,8 @@ def seleccionar_recuerdos_relevantes(
     for posicion, evento in enumerate(eventos):
         if not isinstance(evento, dict):
             continue
+        if not _episodio_activo(evento):
+            continue
 
         puntuacion = _puntuar_episodio(
             evento,
@@ -648,6 +655,44 @@ def seleccionar_recuerdos_relevantes(
 
     puntuados.sort(key=lambda item: item[0], reverse=True)
     return [evento for _, evento in puntuados[:limite]]
+
+
+def listar_memorias_activas(
+    memoria: dict[str, Any],
+    limite: int = 20,
+) -> list[dict[str, Any]]:
+    eventos = memoria.get("episodica", {}).get("eventos", [])
+
+    if not isinstance(eventos, list) or limite <= 0:
+        return []
+
+    activas = [
+        evento
+        for evento in eventos
+        if isinstance(evento, dict) and _episodio_activo(evento)
+    ]
+    return activas[-limite:]
+
+
+def listar_memorias_olvidadas(
+    memoria: dict[str, Any],
+    limite: int = 20,
+) -> list[dict[str, Any]]:
+    eventos = memoria.get("episodica", {}).get("eventos", [])
+
+    if not isinstance(eventos, list) or limite <= 0:
+        return []
+
+    olvidadas = [
+        evento
+        for evento in eventos
+        if (
+            isinstance(evento, dict)
+            and evento.get("estado") == "olvidada"
+            and normalizar_para_busqueda(str(evento.get("tipo", ""))) != "olvido"
+        )
+    ]
+    return olvidadas[-limite:]
 
 
 def construir_contexto_para_ia(
@@ -1087,21 +1132,207 @@ def _normalizar_episodios(eventos: list[Any]) -> None:
         if not _es_episodio_valido(tipo, contenido):
             continue
 
+        categoria = str(evento.get("categoria", "otros") or "otros")
+        creada_en = str(evento.get("creada_en") or evento.get("fecha") or _fecha_iso())
+        estado = str(evento.get("estado", "activa"))
+        if estado not in {"activa", "olvidada", "eliminada"}:
+            estado = "activa"
+
         normalizado = {
+            "id": str(evento.get("id") or _id_memoria(tipo, categoria, contenido)),
             "tipo": tipo,
             "contenido": contenido,
-            "categoria": str(evento.get("categoria", "otros") or "otros"),
-            "fecha": str(evento.get("fecha") or _fecha_iso()),
+            "categoria": categoria,
+            "fecha": str(evento.get("fecha") or creada_en),
+            "creada_en": creada_en,
+            "actualizada_en": str(evento.get("actualizada_en") or creada_en),
+            "estado": estado,
             "fuente": _normalizar_fuente(str(evento.get("fuente", "usuario"))),
             "confianza": _normalizar_confianza(
                 evento.get("confianza", CONFIANZA_USUARIO)
             ),
         }
+        if evento.get("referencia_id"):
+            normalizado["referencia_id"] = str(evento["referencia_id"])
 
         if not _episodio_duplicado(limpios, normalizado):
             limpios.append(normalizado)
 
     eventos[:] = limpios
+
+
+def _actualizar_indice_memorias(memoria: dict[str, Any]) -> None:
+    eventos = memoria.get("episodica", {}).get("eventos", [])
+    if not isinstance(eventos, list):
+        return
+
+    _aplicar_olvidos_legacy(memoria, eventos)
+    for evento in eventos:
+        if (
+            isinstance(evento, dict)
+            and evento.get("estado") in {"olvidada", "eliminada"}
+            and evento.get("tipo") != "olvido"
+        ):
+            _retirar_memoria_de_estructuras(memoria, evento)
+
+    _indexar_estructuras_legacy(memoria)
+    sistema = _asegurar_diccionario(memoria, "sistema")
+    sistema["version_indice_memorias"] = 1
+
+
+def _aplicar_olvidos_legacy(
+    memoria: dict[str, Any],
+    eventos: list[Any],
+) -> None:
+    for posicion, olvido in enumerate(eventos):
+        if not isinstance(olvido, dict) or olvido.get("tipo") != "olvido":
+            continue
+        if olvido.get("referencia_id"):
+            olvido["estado"] = "eliminada"
+            continue
+
+        contenido = normalizar_para_busqueda(str(olvido.get("contenido", "")))
+        categoria = normalizar_para_busqueda(str(olvido.get("categoria", "")))
+        candidatos = []
+
+        for evento in eventos[:posicion]:
+            if not isinstance(evento, dict) or not _episodio_activo(evento):
+                continue
+            if normalizar_para_busqueda(str(evento.get("contenido", ""))) != contenido:
+                continue
+            categoria_evento = normalizar_para_busqueda(
+                str(evento.get("categoria", ""))
+            )
+            if categoria and categoria_evento != categoria:
+                continue
+            candidatos.append(evento)
+
+        if candidatos:
+            objetivo = candidatos[-1]
+            objetivo["estado"] = "olvidada"
+            objetivo["actualizada_en"] = str(
+                olvido.get("actualizada_en") or olvido.get("fecha") or _fecha_iso()
+            )
+            olvido["referencia_id"] = objetivo["id"]
+            _retirar_memoria_de_estructuras(memoria, objetivo)
+
+        olvido["estado"] = "eliminada"
+
+
+def _indexar_estructuras_legacy(memoria: dict[str, Any]) -> None:
+    usuario = memoria.get("usuario", {})
+
+    for categoria, valores in usuario.get("gustos", {}).items():
+        if isinstance(valores, list):
+            for valor in valores:
+                registrar_episodio(memoria, "gusto", valor, categoria=categoria)
+
+    for categoria, valores in memoria.get("aprendizaje", {}).items():
+        if isinstance(valores, list):
+            for valor in valores:
+                registrar_episodio(memoria, "aprendizaje", valor, categoria=categoria)
+
+    for valor in usuario.get("objetivos", []):
+        registrar_episodio(memoria, "objetivo", valor, categoria="otros")
+
+    for categoria, valores in usuario.get("herramientas", {}).items():
+        if isinstance(valores, list):
+            for valor in valores:
+                registrar_episodio(memoria, "herramienta", valor, categoria=categoria)
+
+    proyectos = memoria.get("proyectos", {})
+    if isinstance(proyectos, dict):
+        for nombre in proyectos:
+            registrar_episodio(memoria, "proyecto", str(nombre), categoria="proyectos")
+
+
+def _buscar_id_memoria_activa(
+    memoria: dict[str, Any],
+    tipo: str,
+    contenidos: list[str],
+    categorias: list[str],
+) -> str:
+    claves_contenido = {
+        _clave_recuerdo(valor)
+        for valor in contenidos
+        if isinstance(valor, str) and valor.strip()
+    }
+    claves_categoria = {
+        normalizar_para_busqueda(valor)
+        for valor in categorias
+        if valor
+    }
+
+    for evento in reversed(listar_memorias_activas(memoria, limite=100000)):
+        if normalizar_para_busqueda(str(evento.get("tipo", ""))) != tipo:
+            continue
+        if _clave_recuerdo(evento.get("contenido", "")) not in claves_contenido:
+            continue
+        categoria = normalizar_para_busqueda(str(evento.get("categoria", "")))
+        if claves_categoria and categoria not in claves_categoria:
+            continue
+        return str(evento.get("id", ""))
+    return ""
+
+
+def _retirar_memoria_de_estructuras(
+    memoria: dict[str, Any],
+    evento: dict[str, Any],
+) -> None:
+    tipo = normalizar_para_busqueda(str(evento.get("tipo", "")))
+    categoria = str(evento.get("categoria", "otros"))
+    contenido = str(evento.get("contenido", ""))
+    usuario = memoria.get("usuario", {})
+
+    if tipo == "gusto":
+        valores = usuario.get("gustos", {}).get(categoria)
+        if isinstance(valores, list):
+            _eliminar_de_lista(valores, [contenido])
+    elif tipo == "aprendizaje":
+        valores = memoria.get("aprendizaje", {}).get(categoria)
+        if isinstance(valores, list):
+            _eliminar_de_lista(valores, [contenido])
+    elif tipo == "objetivo":
+        objetivos = usuario.get("objetivos", [])
+        if isinstance(objetivos, list):
+            _eliminar_de_lista(objetivos, [contenido])
+    elif tipo == "herramienta":
+        valores = usuario.get("herramientas", {}).get(categoria)
+        if isinstance(valores, list):
+            _eliminar_de_lista(valores, [contenido])
+    elif tipo == "proyecto":
+        proyectos = memoria.get("proyectos", {})
+        if isinstance(proyectos, dict):
+            for nombre in list(proyectos):
+                if _clave_recuerdo(nombre) == _clave_recuerdo(contenido):
+                    proyectos.pop(nombre, None)
+
+    if not _hay_otra_memoria_activa_con_contenido(memoria, evento):
+        _olvidar_preferencias(memoria, [contenido])
+        _olvidar_entidades(memoria, [contenido])
+
+
+def _hay_otra_memoria_activa_con_contenido(
+    memoria: dict[str, Any],
+    excluida: dict[str, Any],
+) -> bool:
+    clave = _clave_recuerdo(excluida.get("contenido", ""))
+    excluida_id = str(excluida.get("id", ""))
+    return any(
+        str(evento.get("id", "")) != excluida_id
+        and _clave_recuerdo(evento.get("contenido", "")) == clave
+        for evento in listar_memorias_activas(memoria, limite=100000)
+    )
+
+
+def _id_memoria(tipo: str, categoria: str, contenido: str) -> str:
+    identidad = "|".join((
+        normalizar_para_busqueda(tipo),
+        normalizar_para_busqueda(categoria),
+        _clave_recuerdo(contenido),
+    ))
+    resumen = hashlib.sha256(identidad.encode("utf-8")).hexdigest()[:12]
+    return f"mem-{resumen}"
 
 
 def _normalizar_conversacion(conversacion: list[Any]) -> None:
@@ -1167,6 +1398,13 @@ def _es_episodio_valido(tipo: str, contenido: str) -> bool:
     }
 
     return tipo in tipos_validos and bool(contenido)
+
+
+def _episodio_activo(
+    evento: dict[str, Any],
+) -> bool:
+    tipo = normalizar_para_busqueda(str(evento.get("tipo", "")))
+    return tipo != "olvido" and evento.get("estado", "activa") == "activa"
 
 
 def _episodio_duplicado(

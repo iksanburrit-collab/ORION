@@ -10,17 +10,20 @@ sys.path.insert(0, str(RAIZ))
 
 from core.cerebro import procesar
 from core.memoria import inicializar_memoria
+from utilidades.rutas import configurar_base_datos
 
 
 class MemoriaFuncionalTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
+        configurar_base_datos(self.tmp.name)
         self.cwd_original = os.getcwd()
         os.chdir(self.tmp.name)
         self.memoria = inicializar_memoria({})
         self.config = {"modo": "normal"}
 
     def tearDown(self):
+        configurar_base_datos(None)
         os.chdir(self.cwd_original)
         self.tmp.cleanup()
 

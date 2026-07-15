@@ -19,16 +19,19 @@ from core.memoria import (
     seleccionar_recuerdos_relevantes,
 )
 from utilidades.archivos import cargar
+from utilidades.rutas import configurar_base_datos
 
 
 class MemoriaEpisodicaTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
+        configurar_base_datos(self.tmp.name)
         self.cwd_original = os.getcwd()
         os.chdir(self.tmp.name)
         self.memoria = inicializar_memoria({})
 
     def tearDown(self):
+        configurar_base_datos(None)
         os.chdir(self.cwd_original)
         self.tmp.cleanup()
 

@@ -5,17 +5,94 @@ from typing import Any
 
 from core.conocimiento import normalizar_para_busqueda
 from core.memoria import (
+    buscar_memoria,
     cambiar_objetivo,
     consultar_aprendizaje,
     consultar_gustos,
+    listar_memorias_activas,
+    listar_memorias_olvidadas,
     consultar_objetivos,
     consultar_proyectos,
     consultar_resumen_personal,
+    eliminar_memoria,
     guardar_memoria,
     obtener_ultimo_comando,
     olvidar_aprendizaje,
     olvidar_gusto,
+    olvidar_memoria,
 )
+
+
+def puede_manejar_accion_memoria(texto: str) -> bool:
+    return bool(
+        re.match(r"^olvida memoria\s+\S+$", texto)
+        or re.match(r"^(?:borra|elimina) memoria\s+\S+$", texto)
+    )
+
+
+def procesar_accion_memoria(
+    texto: str,
+    memoria: dict[str, Any],
+) -> tuple[bool, str, str, dict[str, Any] | None]:
+    coincidencia = re.match(r"^olvida memoria\s+(\S+)$", texto)
+    accion = "olvidar_memoria"
+    estado = "olvidada"
+
+    if not coincidencia:
+        coincidencia = re.match(r"^(?:borra|elimina) memoria\s+(\S+)$", texto)
+        accion = "eliminar_memoria"
+        estado = "eliminada"
+
+    if not coincidencia:
+        return False, "", "", None
+
+    memoria_id = coincidencia.group(1)
+    registro = buscar_memoria(memoria, memoria_id)
+    if not registro or registro.get("estado") == "eliminada":
+        return (
+            True,
+            "memoria_no_encontrada",
+            "No encontre esa memoria. Usa \"mis memorias\" para ver sus IDs.",
+            None,
+        )
+    if estado == "olvidada" and registro.get("estado") != "activa":
+        return True, "memoria_no_activa", "Esa memoria ya no esta activa.", None
+
+    solicitud = {
+        "tipo": "confirmar_estado_memoria",
+        "identificador": memoria_id,
+        "accion": accion,
+        "datos": {"estado": estado},
+        "nivel_riesgo": "medio",
+        "texto_confirmacion": (
+            f"Quieres olvidar la memoria {memoria_id}?"
+            if estado == "olvidada"
+            else f"Quieres eliminar la memoria {memoria_id}?"
+        ),
+    }
+    return True, f"solicitar_{accion}", solicitud["texto_confirmacion"], solicitud
+
+
+def confirmar_accion_memoria(
+    solicitud: dict[str, Any],
+    memoria: dict[str, Any],
+) -> str:
+    memoria_id = str(solicitud.get("identificador", ""))
+    accion = str(solicitud.get("accion", ""))
+
+    if accion == "olvidar_memoria":
+        cambiado = olvidar_memoria(memoria, memoria_id)
+        mensaje = f"Memoria olvidada: {memoria_id}"
+    elif accion == "eliminar_memoria":
+        cambiado = eliminar_memoria(memoria, memoria_id)
+        mensaje = f"Memoria eliminada: {memoria_id}"
+    else:
+        return "No pude completar esa solicitud."
+
+    if cambiado:
+        guardar_memoria(memoria)
+        return mensaje
+    return "No encontre una memoria compatible con esa solicitud."
 
 
 def procesar_memoria(texto: str, memoria: dict[str, Any]) -> tuple[bool, str, str]:
@@ -65,6 +142,20 @@ def _procesar_consulta(
     memoria: dict[str, Any]
 ) -> tuple[bool, str, str]:
     consulta = normalizar_para_busqueda(texto)
+
+    if consulta == "mis memorias":
+        memorias = listar_memorias_activas(memoria)
+        return True, "listar_memorias_activas", _formatear_memorias(
+            memorias,
+            "No tengo memorias activas",
+        )
+
+    if consulta == "memorias olvidadas":
+        memorias = listar_memorias_olvidadas(memoria)
+        return True, "listar_memorias_olvidadas", _formatear_memorias(
+            memorias,
+            "No tengo memorias olvidadas",
+        )
 
     if consulta == "que sabes de mi":
         return (
@@ -226,3 +317,18 @@ def _listar_gustos(memoria: dict[str, Any]) -> str:
         return "Tus gustos:\n" + "\n".join(partes)
 
     return "Todavia no se tus gustos"
+
+
+def _formatear_memorias(
+    memorias: list[dict[str, Any]],
+    vacio: str,
+) -> str:
+    if not memorias:
+        return vacio
+
+    return "\n".join(
+        f"- [{memoria.get('id', 'sin-id')}] "
+        f"{memoria.get('tipo', 'memoria')}: {memoria.get('contenido', '')}"
+        for memoria in memorias
+    )
+    eliminar_memoria,
