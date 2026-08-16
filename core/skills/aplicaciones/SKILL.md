@@ -11,15 +11,12 @@ descripcion: Permite a ORION trabajar con aplicaciones instaladas en el sistema.
 - cuando el usuario quiere consultar o buscar aplicaciones disponibles
 - cuando el usuario quiere escanear o actualizar el catálogo de aplicaciones
 
-## Herramientas relacionadas
-- abrir_aplicacion
-- cerrar_aplicacion
-- buscar_aplicacion
-- listar_aplicaciones
-- escanear_aplicaciones
+## Herramientas relacionadas (Tools)
+- abrir_aplicacion: abre una aplicación registrada (resuelve nombre o alias)
+- listar_aplicaciones: devuelve las aplicaciones disponibles con sus alias
 
 ## Reglas
 - no asumir nombres de ejecutables; verificar primero qué aplicación está disponible
 - solo se abre una aplicación registrada en el catálogo
-- el descubrimiento automático solo está implementado en Windows
+- el descubrimiento automático está implementado en Windows y Linux
 - las acciones sobre aplicaciones requieren que el control del PC esté activado

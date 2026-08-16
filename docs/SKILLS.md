@@ -2,8 +2,9 @@
 
 Una Skill describe una capacidad especializada de ORION de forma legible tanto
 para el código como, en el futuro, para un modelo de IA. La Fase 1 introduce el
-formato y el registro; la ejecución de Tools, el agente y la selección por LLM
-quedan para fases posteriores.
+formato y el registro; la Fase 2 introduce las Tools ejecutables (ver
+[TOOLS.md](TOOLS.md)). El agente y la selección por LLM quedan para fases
+posteriores.
 
 ## Qué es una Skill
 
@@ -19,8 +20,8 @@ Una Skill contiene:
 
 - Una **Skill** describe *qué capacidad existe*, cuándo debe usarse y con qué
   reglas. Es declarativa y no ejecuta nada.
-- Una **Tool** será (en fases posteriores) una acción ejecutable que ORION podrá
-  invocar (abrir una aplicación, buscar en la web, etc.).
+- Una **Tool** es una acción ejecutable que ORION invoca de forma segura (abrir
+  una aplicación, listar aplicaciones, buscar en la web). Ver `docs/TOOLS.md`.
 
 ## Estructura
 
@@ -80,8 +81,7 @@ ORION también responde consultas en lenguaje natural como "lista skills" o
 
 ## Fuera de esta fase
 
-- Ejecución de Tools.
 - Agente autónomo, planificación y razonamiento ReAct.
-- Selección de Skills mediante LLM.
+- Selección de Skills o Tools mediante LLM.
 - Permisos avanzados y ejecución arbitraria de comandos.
 - Instalación dinámica de Skills y sistema de plugins.

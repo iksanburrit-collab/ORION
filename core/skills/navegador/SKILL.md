@@ -10,9 +10,8 @@ descripcion: Permite a ORION abrir búsquedas web en el navegador predeterminado
 - cuando el usuario pide abrir una búsqueda en un buscador
 - cuando el usuario pide abrir YouTube o una búsqueda en YouTube
 
-## Herramientas relacionadas
-- abrir_busqueda_web
-- navegador_inteligente
+## Herramientas relacionadas (Tools)
+- abrir_navegador: abre el navegador con una búsqueda web o con un navegador concreto
 
 ## Reglas
 - solo se abre el navegador predeterminado del sistema

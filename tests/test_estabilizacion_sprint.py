@@ -41,7 +41,7 @@ class EstabilizacionSprintTests(unittest.TestCase):
         os.chdir(self.cwd_original)
         self.tmp.cleanup()
 
-    @mock.patch("core.cerebro.navegador_inteligente")
+    @mock.patch("core.tools.herramientas.navegador.navegador_inteligente")
     @mock.patch("core.handlers.ia.generar_respuesta")
     def test_busca_aplicacion_no_llama_navegador(self, generar, navegador):
         resultado = procesar("busca aplicacion chrome", self.memoria, self.config)
@@ -77,7 +77,7 @@ class EstabilizacionSprintTests(unittest.TestCase):
         )
         generar.assert_not_called()
 
-    @mock.patch("core.cerebro.navegador_inteligente", return_value=True)
+    @mock.patch("core.tools.herramientas.navegador.navegador_inteligente", return_value=True)
     @mock.patch("core.handlers.ia.generar_respuesta")
     def test_busqueda_web_generica_sigue_en_navegador(self, generar, navegador):
         resultado = procesar("busca clima de manana", self.memoria, self.config)

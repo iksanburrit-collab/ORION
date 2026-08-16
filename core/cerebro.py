@@ -3,7 +3,7 @@ from __future__ import annotations
 import random
 from typing import Any, Callable
 
-from comandos.navegador import es_comando_navegador, navegador_inteligente
+from comandos.navegador import es_comando_navegador
 from core.handlers.alias import procesar_alias
 from core.handlers.aplicaciones import (
     confirmar_accion_pc,
@@ -14,6 +14,7 @@ from core.handlers.configuracion import procesar_configuracion
 from core.handlers.contratos import ResultadoCerebro
 from core.handlers.ia import resolver_ia
 from core.handlers.intencion import resolver_intencion
+from core.tools import ejecutar_herramienta
 from core.handlers.memoria import (
     confirmar_accion_memoria,
     procesar_accion_memoria,
@@ -381,7 +382,8 @@ def _resolver_comandos_locales(
 
     if es_comando_navegador(texto):
         resultado.intencion = "navegador"
-        if navegador_inteligente(texto):
+        tool = ejecutar_herramienta("abrir_navegador", {"consulta": texto})
+        if tool.exito:
             resultado.accion = "navegador"
         else:
             resultado.accion = "error_navegador"

@@ -4,7 +4,10 @@ import platform
 import re
 from typing import Any
 
+from core.tools import ejecutar_herramienta
 from servicios.sistema.aplicaciones import CatalogoAplicaciones
+from servicios.sistema.contratos import AplicacionRegistrada
+from servicios.sistema.descubrimiento_linux import descubrir_aplicaciones_linux
 from servicios.sistema.descubrimiento_windows import descubrir_aplicaciones_windows
 from servicios.sistema.ejecutor import EjecutorAccionesPC
 
@@ -29,12 +32,10 @@ def procesar_aplicaciones(
     catalogo = catalogo or CatalogoAplicaciones()
 
     if texto in {"escanea aplicaciones", "actualiza aplicaciones"}:
-        if platform.system() != "Windows":
-            return True, "escanear_aplicaciones", "El descubrimiento automatico solo esta implementado en Windows.", None
+        if platform.system() not in {"Windows", "Linux"}:
+            return True, "escanear_aplicaciones", "El descubrimiento automatico solo esta implementado en Windows y Linux.", None
 
-        resumen = catalogo.actualizar_desde_descubrimiento(
-            descubrir_aplicaciones_windows()
-        )
+        resumen = catalogo.actualizar_desde_descubrimiento(_descubrir_aplicaciones())
         respuesta = (
             "Catalogo actualizado. "
             f"Detectadas: {resumen['detectadas']}. "
@@ -45,14 +46,20 @@ def procesar_aplicaciones(
         return True, "escanear_aplicaciones", respuesta, None
 
     if texto == "lista aplicaciones":
-        apps = catalogo.listar()
+        resultado = ejecutar_herramienta(
+            "listar_aplicaciones", {"catalogo": catalogo}
+        )
+        if not resultado.exito:
+            return True, "listar_aplicaciones", resultado.mensaje, None
+
+        apps = resultado.datos["aplicaciones"]
         if not apps:
             return True, "listar_aplicaciones", "No hay aplicaciones registradas.", None
 
         limite = 20
         visibles = apps[:limite]
         lineas = [f"Aplicaciones registradas: {len(apps)}"]
-        lineas.extend(f"- {app.nombre} ({app.origen})" for app in visibles)
+        lineas.extend(f"- {app['nombre']} ({app['origen']})" for app in visibles)
 
         restantes = len(apps) - len(visibles)
         if restantes > 0:
@@ -69,14 +76,11 @@ def procesar_aplicaciones(
 
     coincidencia = re.match(r"^(?:abre|inicia)\s+(.+)$", texto)
     if coincidencia:
-        ejecutor = EjecutorAccionesPC(config)
-        resultado, solicitud = ejecutor.preparar(
+        resultado = ejecutar_herramienta(
             "abrir_aplicacion",
-            {"aplicacion": coincidencia.group(1).strip()},
+            {"aplicacion": coincidencia.group(1).strip(), "config": config},
         )
-        if solicitud:
-            return True, "solicitar_abrir_aplicacion", solicitud["texto_confirmacion"], solicitud
-        return True, "abrir_aplicacion", resultado.mensaje if resultado else "No pude abrir la aplicacion.", None
+        return True, "abrir_aplicacion", resultado.mensaje, None
 
     coincidencia = re.match(r"^(?:cierra|termina)\s+(.+)$", texto)
     if coincidencia:
@@ -104,3 +108,12 @@ def confirmar_accion_pc(solicitud: dict[str, Any], config: dict[str, Any]) -> st
         parametros,
     )
     return resultado.mensaje
+
+
+def _descubrir_aplicaciones() -> list[AplicacionRegistrada]:
+    sistema = platform.system()
+    if sistema == "Windows":
+        return descubrir_aplicaciones_windows()
+    if sistema == "Linux":
+        return descubrir_aplicaciones_linux()
+    return []

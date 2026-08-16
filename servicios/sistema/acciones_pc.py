@@ -13,6 +13,49 @@ from servicios.sistema.aplicaciones import CatalogoAplicaciones
 from servicios.sistema.contratos import ResultadoAccion
 
 
+# Procesos lanzados en segundo plano. Se conservan referencias para evitar que
+# el recolector cierre descriptores o emita avisos, y se van limpiando los que
+# ya terminaron para no acumular procesos zombie ni crecer sin limite.
+_PROCESOS_EN_SEGUNDO_PLANO: list[subprocess.Popen[Any]] = []
+
+
+def lanzar_en_segundo_plano(comando: list[str]) -> subprocess.Popen[Any]:
+    """Lanza una aplicacion sin bloquear a ORION ni contaminar su consola.
+
+    El proceso se ejecuta desacoplado de ORION:
+      - stdin/stdout/stderr apuntan a DEVNULL, asi su salida nunca llega a la
+        terminal de ORION ni puede bloquear sus escrituras.
+      - En POSIX se crea una sesion nueva (start_new_session) y en Windows un
+        grupo de proceso separado, de modo que la aplicacion sobrevive aunque
+        ORION siga o termine y no recibe las senales de su terminal.
+
+    Popen regresa inmediatamente despues de arrancar el proceso; aqui nunca se
+    espera a que la aplicacion termine de iniciar.
+    """
+    kwargs: dict[str, Any] = {
+        "stdin": subprocess.DEVNULL,
+        "stdout": subprocess.DEVNULL,
+        "stderr": subprocess.DEVNULL,
+        "close_fds": True,
+    }
+    if os.name == "nt":
+        kwargs["creationflags"] = (
+            subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+        )
+    else:
+        kwargs["start_new_session"] = True
+
+    proceso = subprocess.Popen(comando, shell=False, **kwargs)
+    _recolectar_terminados()
+    _PROCESOS_EN_SEGUNDO_PLANO.append(proceso)
+    return proceso
+
+
+def _recolectar_terminados() -> None:
+    vivos = [proceso for proceso in _PROCESOS_EN_SEGUNDO_PLANO if proceso.poll() is None]
+    _PROCESOS_EN_SEGUNDO_PLANO[:] = vivos
+
+
 PROCESOS_CRITICOS = {
     "csrss.exe",
     "explorer.exe",
@@ -62,7 +105,7 @@ def abrir_aplicacion(
         )
 
     try:
-        subprocess.Popen(comando, shell=False)
+        lanzar_en_segundo_plano(comando)
     except OSError as exc:
         return ResultadoAccion(
             False,

@@ -1,4 +1,5 @@
 import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -39,7 +40,7 @@ class CompatibilidadMultiplataformaTests(unittest.TestCase):
         self.assertEqual(abrir.call_count, 3)
 
     def test_fallo_del_navegador_da_error_claro_al_orquestador(self):
-        with mock.patch("core.cerebro.navegador_inteligente", return_value=False):
+        with mock.patch("core.tools.herramientas.navegador.navegador_inteligente", return_value=False):
             resultado = procesar("busca orion", {}, {"ia": {"activada": False}})
 
         self.assertEqual(resultado.accion, "error_navegador")
@@ -65,7 +66,12 @@ class CompatibilidadMultiplataformaTests(unittest.TestCase):
 
                 self.assertTrue(resultado.exito)
                 comando = [esperado, ruta] if esperado else [ruta]
-                popen.assert_called_with(comando, shell=False)
+                popen.assert_called()
+                args, kwargs = popen.call_args
+                self.assertEqual(args[0], comando)
+                self.assertFalse(kwargs["shell"])
+                self.assertIs(kwargs["stdout"], subprocess.DEVNULL)
+                self.assertIs(kwargs["stderr"], subprocess.DEVNULL)
 
     def test_linux_informa_si_no_hay_lanzador_desktop(self):
         catalogo, _ = self._catalogo_con_app("app.desktop")

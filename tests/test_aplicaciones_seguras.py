@@ -1,6 +1,10 @@
+import contextlib
+import io
 import os
+import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -10,7 +14,11 @@ RAIZ = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(RAIZ))
 
 from core.cerebro import procesar
-from servicios.sistema.acciones_pc import abrir_aplicacion, cerrar_aplicacion
+from servicios.sistema.acciones_pc import (
+    abrir_aplicacion,
+    cerrar_aplicacion,
+    lanzar_en_segundo_plano,
+)
 from servicios.sistema.aplicaciones import CatalogoAplicaciones
 from servicios.sistema.ejecutor import EjecutorAccionesPC
 
@@ -39,7 +47,17 @@ class AplicacionesSegurasTests(unittest.TestCase):
         resultado = abrir_aplicacion("app", self.catalogo)
 
         self.assertTrue(resultado.exito)
-        popen.assert_called_once_with([self.exe], shell=False)
+        popen.assert_called_once()
+        args, kwargs = popen.call_args
+        self.assertEqual(args[0], [self.exe])
+        self.assertFalse(kwargs["shell"])
+        self.assertIs(kwargs["stdin"], subprocess.DEVNULL)
+        self.assertIs(kwargs["stdout"], subprocess.DEVNULL)
+        self.assertIs(kwargs["stderr"], subprocess.DEVNULL)
+        if sys.platform != "win32":
+            self.assertTrue(kwargs["start_new_session"])
+        else:
+            self.assertIn("creationflags", kwargs)
 
     def test_rechazar_aplicacion_no_permitida(self):
         resultado = abrir_aplicacion("desconocida", self.catalogo)
@@ -117,6 +135,58 @@ class AplicacionesSegurasTests(unittest.TestCase):
 
         self.assertNotEqual(resultado.accion, "respuesta_ia_groq")
         generar.assert_not_called()
+
+
+class LanzamientoSegundoPlanoTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_lanzamiento_no_bloquea_y_el_proceso_queda_vivo(self):
+        inicio = time.time()
+        proceso = lanzar_en_segundo_plano(
+            [sys.executable, "-c", "import time; time.sleep(5)"]
+        )
+        transcurrido = time.time() - inicio
+
+        self.assertLess(transcurrido, 1.0)
+        self.assertIsNone(proceso.poll())
+        if sys.platform != "win32":
+            self.assertNotEqual(os.getsid(proceso.pid), os.getsid(0))
+        proceso.terminate()
+        proceso.wait(timeout=5)
+
+    def test_salida_de_la_aplicacion_no_contamina_la_consola(self):
+        script = (
+            "import sys; "
+            "print('RUIDO_STDOUT'); "
+            "sys.stderr.write('RUIDO_STDERR'); "
+            "sys.stdout.flush(); sys.stderr.flush()"
+        )
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            proceso = lanzar_en_segundo_plano([sys.executable, "-c", script])
+            proceso.wait(timeout=10)
+
+        salida = buffer.getvalue()
+        self.assertNotIn("RUIDO_STDOUT", salida)
+        self.assertNotIn("RUIDO_STDERR", salida)
+
+    @unittest.skipIf(sys.platform == "win32", "Se prueba el lanzador POSIX.")
+    def test_fallo_real_al_iniciar_se_informa_como_error(self):
+        ruta = os.path.join(self.tmp.name, "noejecutable.exe")
+        Path(ruta).write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        os.chmod(ruta, 0o644)
+
+        catalogo = CatalogoAplicaciones(os.path.join(self.tmp.name, "err.json"))
+        catalogo.agregar_manual("No Ejecutable", ruta, ["noejecutable"])
+
+        resultado = abrir_aplicacion("noejecutable", catalogo)
+
+        self.assertFalse(resultado.exito)
+        self.assertEqual(resultado.tipo_error, "error_sistema")
 
 
 if __name__ == "__main__":

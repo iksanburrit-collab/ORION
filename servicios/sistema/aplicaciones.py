@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import os
 from pathlib import Path
+import platform
 import re
 
 from core.conocimiento import normalizar_para_busqueda
@@ -20,8 +21,10 @@ class CatalogoAplicaciones:
     def __init__(self, archivo: str | None = None) -> None:
         self.archivo = archivo or ruta_aplicaciones_usuario()
         self.aplicaciones = self._cargar()
+        self._descubrimiento_hecho = False
 
     def listar(self) -> list[AplicacionRegistrada]:
+        self._descubrir_si_necesario()
         return sorted(self.aplicaciones, key=lambda app: app.nombre.lower())
 
     def buscar_por_identidad(
@@ -35,6 +38,7 @@ class CatalogoAplicaciones:
         return None
 
     def buscar_para_usuario(self, nombre: str) -> AplicacionRegistrada | None:
+        self._descubrir_si_necesario()
         clave = normalizar_para_busqueda(nombre)
 
         for app in self.aplicaciones:
@@ -124,6 +128,21 @@ class CatalogoAplicaciones:
 
         return resumen
 
+    def _descubrir_si_necesario(self) -> None:
+        if self._descubrimiento_hecho or self.aplicaciones:
+            return
+
+        self._descubrimiento_hecho = True
+
+        for detectada in _descubrir_aplicaciones_por_plataforma():
+            if not detectada.nombre or (
+                detectada.ruta and not ruta_permitida(detectada.ruta)
+            ):
+                continue
+
+            if self.buscar_por_identidad(detectada) is None:
+                self.aplicaciones.append(detectada)
+
     def guardar(self) -> None:
         directorio = os.path.dirname(self.archivo)
         if directorio:
@@ -194,3 +213,16 @@ def _misma_aplicacion(
         and existente.origen == detectada.origen
         and existente.verificada == detectada.verificada
     )
+
+
+def _descubrir_aplicaciones_por_plataforma() -> list[AplicacionRegistrada]:
+    sistema = platform.system()
+    if sistema == "Linux":
+        from servicios.sistema.descubrimiento_linux import descubrir_aplicaciones_linux
+
+        return descubrir_aplicaciones_linux()
+    if sistema == "Windows":
+        from servicios.sistema.descubrimiento_windows import descubrir_aplicaciones_windows
+
+        return descubrir_aplicaciones_windows()
+    return []
