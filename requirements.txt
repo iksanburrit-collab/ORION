@@ -1,3 +1,10 @@
-# Instalación reproducible de ORION y sus dependencias de ejecución.
-# Actualmente ORION solo usa la biblioteca estándar.
--e .
+# Instalación de ORION y sus dependencias.
+#
+# En tiempo de ejecución ORION solo usa la biblioteca estándar de Python,
+# por lo que no hay dependencias de terceros que añadir además del propio
+# proyecto.
+#
+# La siguiente línea instala ORION en modo editable junto con sus
+# dependencias de desarrollo (pytest, coverage, pytest-cov y ruff),
+# definidas como el extra "dev" en pyproject.toml.
+-e .[dev]

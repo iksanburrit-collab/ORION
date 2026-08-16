@@ -12,6 +12,7 @@ sys.path.insert(0, str(RAIZ))
 from core.cerebro import procesar
 from servicios.sistema.acciones_pc import abrir_aplicacion, cerrar_aplicacion
 from servicios.sistema.aplicaciones import CatalogoAplicaciones
+from servicios.sistema.ejecutor import EjecutorAccionesPC
 
 
 class AplicacionesSegurasTests(unittest.TestCase):
@@ -57,6 +58,42 @@ class AplicacionesSegurasTests(unittest.TestCase):
             "cerrar_aplicacion",
         )
         self.assertIn("aplicacion", resultado.solicitud_pendiente["datos"])
+
+    def test_pedir_confirmacion_para_cerrar_en_linux(self):
+        with mock.patch("servicios.sistema.ejecutor.platform.system", return_value="Linux"):
+            resultado = procesar("cierra app", {}, self.config)
+
+        self.assertEqual(resultado.accion, "solicitar_cierre_aplicacion")
+        self.assertIsInstance(resultado.solicitud_pendiente, dict)
+        self.assertEqual(resultado.solicitud_pendiente["accion"], "cerrar_aplicacion")
+
+    def test_pedir_confirmacion_para_cerrar_en_windows(self):
+        with mock.patch("servicios.sistema.ejecutor.platform.system", return_value="Windows"):
+            resultado = procesar("cierra app", {}, self.config)
+
+        self.assertEqual(resultado.accion, "solicitar_cierre_aplicacion")
+        self.assertIsInstance(resultado.solicitud_pendiente, dict)
+        self.assertEqual(resultado.solicitud_pendiente["accion"], "cerrar_aplicacion")
+
+    def test_so_no_compatible_rechaza_sin_confirmacion(self):
+        with mock.patch("servicios.sistema.ejecutor.platform.system", return_value="FreeBSD"):
+            resultado = procesar("cierra app", {}, self.config)
+
+        self.assertEqual(resultado.accion, "cerrar_aplicacion")
+        self.assertIsNone(resultado.solicitud_pendiente)
+        self.assertEqual(resultado.respuesta, "Sistema no compatible.")
+
+    def test_so_no_compatible_marca_error_claro_en_preparar(self):
+        ejecutor = EjecutorAccionesPC(self.config)
+        with mock.patch("servicios.sistema.ejecutor.platform.system", return_value="FreeBSD"):
+            resultado, solicitud = ejecutor.preparar(
+                "cerrar_aplicacion", {"aplicacion": "app"}
+            )
+
+        self.assertIsNone(solicitud)
+        self.assertIsNotNone(resultado)
+        self.assertFalse(resultado.exito)
+        self.assertEqual(resultado.tipo_error, "sistema_no_compatible")
 
     def test_no_cerrar_proceso_critico(self):
         catalogo = CatalogoAplicaciones(os.path.join(self.tmp.name, "criticos.json"))

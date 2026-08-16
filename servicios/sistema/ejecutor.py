@@ -25,6 +25,9 @@ class EjecutorAccionesPC:
         if not permitido:
             return ResultadoAccion(False, motivo, nombre, tipo_error="accion_no_permitida"), None
 
+        if platform.system() not in accion.sistemas_compatibles:
+            return ResultadoAccion(False, "Sistema no compatible.", nombre, tipo_error="sistema_no_compatible"), None
+
         if requiere_confirmacion(accion, self.config):
             return None, {
                 "tipo": "confirmar_accion_pc",
