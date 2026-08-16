@@ -394,7 +394,7 @@ class ProveedorHibridoTests(unittest.TestCase):
         self.assertEqual(guardada, config)
         self.assertNotIn("nvidia", json.dumps(guardada).lower())
 
-    @mock.patch("core.cerebro.generar_respuesta")
+    @mock.patch("core.handlers.ia.generar_respuesta")
     def test_que_version_tiene_python_llega_a_ia(self, proveedor):
         proveedor.return_value = RespuestaIA("Usa python --version", "groq")
 

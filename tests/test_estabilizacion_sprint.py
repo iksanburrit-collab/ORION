@@ -42,7 +42,7 @@ class EstabilizacionSprintTests(unittest.TestCase):
         self.tmp.cleanup()
 
     @mock.patch("core.cerebro.navegador_inteligente")
-    @mock.patch("core.cerebro.generar_respuesta")
+    @mock.patch("core.handlers.ia.generar_respuesta")
     def test_busca_aplicacion_no_llama_navegador(self, generar, navegador):
         resultado = procesar("busca aplicacion chrome", self.memoria, self.config)
 
@@ -50,14 +50,14 @@ class EstabilizacionSprintTests(unittest.TestCase):
         navegador.assert_not_called()
         generar.assert_not_called()
 
-    @mock.patch("core.cerebro.generar_respuesta")
+    @mock.patch("core.handlers.ia.generar_respuesta")
     def test_que_fecha_es_no_llama_ia(self, generar):
         resultado = procesar("que fecha es", self.memoria, self.config)
 
         self.assertEqual(resultado.accion, "mostrar_fecha")
         generar.assert_not_called()
 
-    @mock.patch("core.cerebro.generar_respuesta")
+    @mock.patch("core.handlers.ia.generar_respuesta")
     def test_frases_de_fecha_y_hora_son_locales(self, generar):
         for texto in (
             "que fecha es",
@@ -78,7 +78,7 @@ class EstabilizacionSprintTests(unittest.TestCase):
         generar.assert_not_called()
 
     @mock.patch("core.cerebro.navegador_inteligente", return_value=True)
-    @mock.patch("core.cerebro.generar_respuesta")
+    @mock.patch("core.handlers.ia.generar_respuesta")
     def test_busqueda_web_generica_sigue_en_navegador(self, generar, navegador):
         resultado = procesar("busca clima de manana", self.memoria, self.config)
 
@@ -152,7 +152,7 @@ class EstabilizacionSprintTests(unittest.TestCase):
         self.assertNotIn("Minecraft", contexto)
         self.assertNotIn("olvido", contexto)
 
-    @mock.patch("core.cerebro.generar_respuesta")
+    @mock.patch("core.handlers.ia.generar_respuesta")
     def test_comandos_antiguos_siguen_funcionando(self, generar):
         hora = procesar("hora", self.memoria, self.config)
         nota = procesar(

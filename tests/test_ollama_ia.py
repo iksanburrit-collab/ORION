@@ -118,14 +118,14 @@ class IntegracionOllamaTests(unittest.TestCase):
         self.assertTrue(respuesta.startswith(ERROR_OLLAMA))
         self.assertIn("JSON invalido", respuesta)
 
-    @mock.patch("core.cerebro.generar_respuesta")
+    @mock.patch("core.handlers.ia.generar_respuesta")
     def test_comando_conocido_no_llama_a_ollama(self, generar):
         resultado = procesar("hora", self.memoria, self.config)
 
         generar.assert_not_called()
         self.assertEqual(resultado.accion, "mostrar_hora")
 
-    @mock.patch("core.cerebro.generar_respuesta")
+    @mock.patch("core.handlers.ia.generar_respuesta")
     def test_mensaje_desconocido_llama_a_ollama_y_usa_contexto(
         self,
         generar,
@@ -142,7 +142,7 @@ class IntegracionOllamaTests(unittest.TestCase):
             historial=[],
         )
 
-    @mock.patch("core.cerebro.generar_respuesta")
+    @mock.patch("core.handlers.ia.generar_respuesta")
     def test_ia_desactivada_usa_respuesta_desconocida_normal(self, generar):
         self.config["ia"]["activada"] = False
 
@@ -151,7 +151,7 @@ class IntegracionOllamaTests(unittest.TestCase):
         generar.assert_not_called()
         self.assertEqual(resultado.accion, "desconocido")
 
-    @mock.patch("core.cerebro.generar_respuesta")
+    @mock.patch("core.handlers.ia.generar_respuesta")
     def test_ia_no_modifica_memoria_personal(self, generar):
         generar.return_value = RespuestaProveedor("Respuesta local", "ollama")
         usuario_antes = copy.deepcopy(self.memoria["usuario"])

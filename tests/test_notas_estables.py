@@ -38,7 +38,7 @@ class NotasEstablesTests(unittest.TestCase):
             archivo_notas=self.repositorio.archivo,
         )
 
-    @mock.patch("core.cerebro.generar_respuesta")
+    @mock.patch("core.handlers.ia.generar_respuesta")
     def test_creacion_y_listado_local_con_ids(self, generar):
         creada = self.ejecutar("anota revisar backups")
         legacy = self.ejecutar("recuerda comprar pilas")
@@ -96,7 +96,7 @@ class NotasEstablesTests(unittest.TestCase):
         completar_solicitud(solicitud, "si", self.memoria, self.config)
         self.assertEqual(RepositorioNotas().listar_activas(), [])
 
-    @mock.patch("core.cerebro.generar_respuesta")
+    @mock.patch("core.handlers.ia.generar_respuesta")
     def test_id_inexistente_no_llega_a_ia(self, generar):
         resultado = self.ejecutar("elimina nota 1")
 

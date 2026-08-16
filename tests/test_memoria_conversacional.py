@@ -54,7 +54,7 @@ class MemoriaConversacionalTests(unittest.TestCase):
         self.assertEqual(resultado.accion, "saludar")
         self.assertEqual(self.eventos(), [])
 
-    @mock.patch("core.cerebro.generar_respuesta")
+    @mock.patch("core.handlers.ia.generar_respuesta")
     def test_no_guarda_pregunta_general(self, generar):
         self.config["ia"]["activada"] = True
         generar.return_value.texto = "Respuesta"

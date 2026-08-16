@@ -96,7 +96,7 @@ class PersistenciaYMigracionTests(unittest.TestCase):
         self.assertEqual(migrados, 0)
         self.assertEqual(Path(calendario).read_bytes(), original)
 
-    @mock.patch("core.cerebro.generar_respuesta")
+    @mock.patch("core.handlers.ia.generar_respuesta")
     def test_dominios_locales_invalidos_no_llaman_ia(self, generar):
         memoria = inicializar_memoria({})
         config = {"ia": {"activada": True}}

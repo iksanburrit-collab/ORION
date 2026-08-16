@@ -1,12 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import random
 from typing import Any, Callable
 
-from comandos.calculadora import ejecutar_calculadora
 from comandos.navegador import es_comando_navegador, navegador_inteligente
-from comandos.sistema import mostrar_ayuda, mostrar_perfil
 from core.handlers.alias import procesar_alias
 from core.handlers.aplicaciones import (
     confirmar_accion_pc,
@@ -14,6 +11,9 @@ from core.handlers.aplicaciones import (
     procesar_aplicaciones,
 )
 from core.handlers.configuracion import procesar_configuracion
+from core.handlers.contratos import ResultadoCerebro
+from core.handlers.ia import resolver_ia
+from core.handlers.intencion import resolver_intencion
 from core.handlers.memoria import (
     confirmar_accion_memoria,
     procesar_accion_memoria,
@@ -44,43 +44,11 @@ from core.memoria import (
     aprender,
     guardar_contexto,
     guardar_memoria,
-    obtener_historial_conversacion,
-    obtener_fecha_nacimiento,
-    obtener_nombre,
-    registrar_turno_conversacion,
 )
 from core.personalidad import responder_personalidad
-from ia.proveedor import generar_respuesta, normalizar_config_ia
-from utilidades.fechas import calcular_edad, fecha_actual, hora_actual
 
 
 GuardarFunc = Callable[[], None]
-
-
-@dataclass
-class ResultadoCerebro:
-    texto: str
-    intencion: str
-    accion: str = ""
-    respuesta: str = ""
-    salir: bool = False
-    solicitud: str | dict[str, Any] | None = None
-    solicitud_pendiente: dict[str, Any] | None = None
-    conocimiento: Any | None = None
-    debug: dict[str, Any] | None = None
-
-    def como_dict(self) -> dict[str, Any]:
-        return {
-            "texto": self.texto,
-            "intencion": self.intencion,
-            "accion": self.accion,
-            "respuesta": self.respuesta,
-            "salir": self.salir,
-            "solicitud": self.solicitud,
-            "solicitud_pendiente": self.solicitud_pendiente,
-            "conocimiento": self.conocimiento,
-            "debug": self.debug,
-        }
 
 
 def procesar(
@@ -161,7 +129,7 @@ def procesar(
     if _resolver_memoria_conversacional(texto, memoria, config, resultado):
         return resultado
 
-    if _resolver_ia(texto, memoria, config, resultado):
+    if resolver_ia(texto, memoria, config, resultado):
         return resultado
 
     resultado.respuesta = random.choice([
@@ -312,128 +280,6 @@ def _registrar_aprendizaje(
     return conocimiento
 
 
-def _resolver_ia(
-    texto: str,
-    memoria: dict[str, Any],
-    config: dict[str, Any],
-    resultado: ResultadoCerebro,
-) -> bool:
-    config_ia = normalizar_config_ia(config)
-
-    if not config_ia["activada"]:
-        return False
-
-    historial = obtener_historial_conversacion(
-        memoria,
-        limite=config_ia["max_turnos"],
-    )
-    respuesta = generar_respuesta(
-        texto,
-        memoria,
-        config,
-        historial=historial,
-    )
-
-    resultado.respuesta = respuesta.texto
-    resultado.debug = respuesta.diagnostico or None
-
-    if respuesta.error:
-        resultado.accion = "error_ia"
-    else:
-        resultado.accion = f"respuesta_ia_{respuesta.proveedor}"
-
-    if not respuesta.error:
-        registrar_turno_conversacion(
-            memoria,
-            texto,
-            respuesta.texto,
-            limite=config_ia["max_turnos"],
-        )
-        guardar_memoria(memoria)
-
-    return True
-
-
-def _resolver_intencion(
-    texto: str,
-    intencion: str,
-    memoria: dict[str, Any],
-    config: dict[str, Any],
-    resultado: ResultadoCerebro,
-) -> bool:
-    nombre = obtener_nombre(memoria)
-    fecha_nacimiento = obtener_fecha_nacimiento(memoria)
-    edad = calcular_edad(fecha_nacimiento)
-
-    if intencion == "saludo":
-        respuesta = f"Hola {nombre} 👋" if nombre else "Hola 👋"
-        resultado.respuesta = responder_personalidad(respuesta, config)
-        resultado.accion = "saludar"
-        return True
-
-    if intencion == "nombre":
-        resultado.respuesta = "Escribe tu nombre:"
-        resultado.solicitud = "nombre"
-        resultado.accion = "solicitar_nombre"
-        return True
-
-    if intencion == "cumple":
-        resultado.respuesta = "Escribe tu fecha de nacimiento (YYYY-MM-DD):"
-        resultado.solicitud = "fecha_nacimiento"
-        resultado.accion = "solicitar_cumple"
-        return True
-
-    if intencion == "perfil":
-        resultado.respuesta = mostrar_perfil(nombre, edad)
-        resultado.accion = "mostrar_perfil"
-        return True
-
-    if intencion == "edad":
-        respuesta = f"Tienes {edad} años" if edad else "No sé tu edad 😅"
-        resultado.respuesta = responder_personalidad(respuesta, config)
-        resultado.accion = "mostrar_edad"
-        return True
-
-    if intencion == "hora":
-        resultado.respuesta = responder_personalidad(hora_actual(), config)
-        resultado.accion = "mostrar_hora"
-        return True
-
-    if intencion == "fecha":
-        resultado.respuesta = responder_personalidad(fecha_actual(), config)
-        resultado.accion = "mostrar_fecha"
-        return True
-
-    if intencion == "estado":
-        respuesta = random.choice([
-            "Estoy bien",
-            "Todo cool 😎",
-            "Todo en orden 👍",
-            "Procesando datos 🤖",
-        ])
-        resultado.respuesta = responder_personalidad(respuesta, config)
-        resultado.accion = "mostrar_estado"
-        return True
-
-    if intencion == "calc":
-        resultado.respuesta = ejecutar_calculadora(texto)
-        resultado.accion = "calcular"
-        return True
-
-    if intencion == "ayuda":
-        resultado.respuesta = mostrar_ayuda()
-        resultado.accion = "mostrar_ayuda"
-        return True
-
-    if intencion == "salir":
-        resultado.respuesta = "Apagando ORION 👋"
-        resultado.accion = "salir"
-        resultado.salir = True
-        return True
-
-    return False
-
-
 def _resolver_comando_directo(
     texto: str,
     memoria: dict[str, Any],
@@ -520,7 +366,7 @@ def _resolver_comandos_locales(
     ):
         return True
 
-    if _resolver_intencion(texto, intencion, memoria, config, resultado):
+    if resolver_intencion(texto, intencion, memoria, config, resultado):
         return True
 
     if _resolver_consulta_memoria(texto, memoria, config, resultado):

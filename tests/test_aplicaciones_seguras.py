@@ -111,7 +111,7 @@ class AplicacionesSegurasTests(unittest.TestCase):
     def test_aliases_funcionan(self):
         self.assertEqual(self.catalogo.buscar("app").nombre, "App Prueba")
 
-    @mock.patch("core.cerebro.generar_respuesta")
+    @mock.patch("core.handlers.ia.generar_respuesta")
     def test_ia_no_ejecuta_acciones_directamente(self, generar):
         resultado = procesar("abre aplicacion inventada", {}, {"ia": {"activada": True}})
 

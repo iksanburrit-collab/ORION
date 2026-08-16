@@ -122,7 +122,7 @@ class EstabilizacionMemoriaTests(unittest.TestCase):
         self.assertEqual(memoria["conversacion"][0]["usuario"], "mensaje 2")
         self.assertEqual(len(obtener_historial_conversacion(memoria, 2)), 4)
 
-    @mock.patch("core.cerebro.generar_respuesta")
+    @mock.patch("core.handlers.ia.generar_respuesta")
     def test_aprendizaje_no_llama_a_ollama(self, generar):
         memoria = inicializar_memoria({})
 
@@ -158,7 +158,7 @@ class EstabilizacionMemoriaTests(unittest.TestCase):
         self.assertIn("no muestres razonamiento interno", normalizado)
         self.assertIn("no inventes recuerdos", normalizado)
 
-    @mock.patch("core.cerebro.generar_respuesta")
+    @mock.patch("core.handlers.ia.generar_respuesta")
     def test_ollama_apagado_no_cierra_orion(self, generar):
         memoria = inicializar_memoria({})
         generar.return_value = RespuestaProveedor(
@@ -173,7 +173,7 @@ class EstabilizacionMemoriaTests(unittest.TestCase):
         self.assertFalse(resultado.salir)
         self.assertEqual(memoria["conversacion"], [])
 
-    @mock.patch("core.cerebro.generar_respuesta")
+    @mock.patch("core.handlers.ia.generar_respuesta")
     def test_memoria_personal_no_cambia_en_conversacion_libre(self, generar):
         memoria = inicializar_memoria({})
         generar.return_value = RespuestaProveedor("Respuesta libre", "groq")

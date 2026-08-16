@@ -152,7 +152,7 @@ class MemoriasEstablesTests(unittest.TestCase):
         self.assertEqual(len(listar_memorias_olvidadas(migrada)), 1)
         self.assertTrue(listar_memorias_olvidadas(migrada)[0]["id"].startswith("mem-"))
 
-    @mock.patch("core.cerebro.generar_respuesta")
+    @mock.patch("core.handlers.ia.generar_respuesta")
     def test_comando_invalido_o_id_inexistente_no_llega_a_ia(self, generar):
         invalido = procesar("borra memoria", self.memoria, self.config)
         inexistente = procesar("borra memoria 1", self.memoria, self.config)

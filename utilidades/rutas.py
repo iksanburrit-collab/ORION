@@ -6,6 +6,8 @@ from pathlib import Path
 import platform
 from typing import Iterator
 
+from platformdirs import user_data_dir
+
 
 _RAIZ_PROYECTO = Path(__file__).resolve().parents[1]
 _BASE_DATOS_PRUEBAS: Path | None = None
@@ -16,6 +18,16 @@ _ARCHIVOS_LEGACY = (
     "config.json",
     "alias.json",
 )
+
+# Preserva las ubicaciones históricas por plataforma: en Linux el directorio
+# se creó en minúsculas ("orion") y en el resto de sistemas en mayúsculas.
+_NOMBRE_APP_LINUX = "orion"
+_NOMBRE_APP = "ORION"
+
+
+def _directorio_plataforma() -> Path:
+    nombre = _NOMBRE_APP_LINUX if platform.system() == "Linux" else _NOMBRE_APP
+    return Path(user_data_dir(nombre, appauthor=False))
 
 
 def raiz_proyecto() -> Path:
@@ -30,12 +42,7 @@ def raiz_proyecto() -> Path:
     if any((_RAIZ_PROYECTO / archivo).exists() for archivo in _ARCHIVOS_LEGACY):
         return _RAIZ_PROYECTO
 
-    sistema = platform.system()
-    if sistema == "Windows":
-        return Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming")) / "ORION"
-    if sistema == "Darwin":
-        return Path.home() / "Library" / "Application Support" / "ORION"
-    return Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share")) / "orion"
+    return _directorio_plataforma()
 
 
 def configurar_base_datos(ruta: str | Path | None) -> None:

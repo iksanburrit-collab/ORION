@@ -110,30 +110,25 @@ class CompatibilidadMultiplataformaTests(unittest.TestCase):
     def test_rutas_de_datos_se_resuelven_por_plataforma(self):
         raiz = Path(self.temporal.name, "codigo")
         raiz.mkdir()
-        hogar = Path(self.temporal.name, "hogar")
 
-        with mock.patch.object(rutas, "_RAIZ_PROYECTO", raiz), mock.patch.object(
-            rutas.Path, "home", return_value=hogar
-        ), mock.patch.dict(os.environ, {"APPDATA": "/datos/windows"}, clear=True), mock.patch(
-            "utilidades.rutas.platform.system", return_value="Windows"
+        for sistema, nombre in (
+            ("Windows", "ORION"),
+            ("Linux", "orion"),
+            ("Darwin", "ORION"),
         ):
-            self.assertEqual(rutas.raiz_proyecto(), Path("/datos/windows/ORION"))
-
-        with mock.patch.object(rutas, "_RAIZ_PROYECTO", raiz), mock.patch.object(
-            rutas.Path, "home", return_value=hogar
-        ), mock.patch.dict(os.environ, {"XDG_DATA_HOME": "/datos/linux"}, clear=True), mock.patch(
-            "utilidades.rutas.platform.system", return_value="Linux"
-        ):
-            self.assertEqual(rutas.raiz_proyecto(), Path("/datos/linux/orion"))
-
-        with mock.patch.object(rutas, "_RAIZ_PROYECTO", raiz), mock.patch.object(
-            rutas.Path, "home", return_value=hogar
-        ), mock.patch.dict(os.environ, {}, clear=True), mock.patch(
-            "utilidades.rutas.platform.system", return_value="Darwin"
-        ):
-            self.assertEqual(
-                rutas.raiz_proyecto(), hogar / "Library" / "Application Support" / "ORION"
-            )
+            with self.subTest(sistema=sistema), mock.patch.object(
+                rutas, "_RAIZ_PROYECTO", raiz
+            ), mock.patch.dict(os.environ, {}, clear=True), mock.patch(
+                "utilidades.rutas.platform.system", return_value=sistema
+            ), mock.patch(
+                "utilidades.rutas.user_data_dir", return_value=f"/datos/{sistema}"
+            ) as directorio_plataforma:
+                self.assertEqual(
+                    rutas.raiz_proyecto(), Path(f"/datos/{sistema}")
+                )
+                directorio_plataforma.assert_called_once_with(
+                    nombre, appauthor=False
+                )
 
     def test_catalogo_admite_formatos_de_las_tres_plataformas(self):
         for ruta in ("app.exe", "app.desktop", "App.app", "acceso.lnk"):
