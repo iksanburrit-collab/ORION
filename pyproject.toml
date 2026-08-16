@@ -27,6 +27,9 @@ py-modules = ["main"]
 [tool.setuptools.packages.find]
 include = ["comandos*", "core*", "ia*", "servicios*", "utilidades*"]
 
+[tool.setuptools.package-data]
+"core.skills" = ["*/SKILL.md"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"

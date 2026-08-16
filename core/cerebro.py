@@ -32,6 +32,7 @@ from core.handlers.notas import (
     procesar_notas,
 )
 from core.handlers.registro import ayuda_comando_local_invalido
+from core.handlers.skills import procesar_skills
 from core.handlers.tareas import (
     confirmar_eliminar_tarea,
     puede_manejar_tareas,
@@ -321,6 +322,12 @@ def _resolver_comando_directo(
     if _aplicar_procesado(
         resultado,
         procesar_alias(texto, alias, config, guardar_alias=guardar_alias),
+    ):
+        return True
+
+    if _aplicar_procesado(
+        resultado,
+        procesar_skills(texto),
     ):
         return True
 
