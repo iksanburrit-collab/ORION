@@ -10,6 +10,7 @@ from servicios.calendario.legacy import migrar_recordatorios_legacy
 from servicios.notas import RepositorioNotas
 from utilidades.archivos import asegurar_json, cargar_json, guardar_json
 from utilidades.configuracion import cargar_configuracion
+from utilidades.entorno import cargar_entorno
 from utilidades.rutas import (
     ruta_alias,
     ruta_configuracion,
@@ -21,6 +22,7 @@ from utilidades.texto import normalizar_comando
 
 
 def inicializar_orion() -> dict[str, Any]:
+    cargar_entorno()
     resultado_memoria = cargar_json(ruta_memoria(), {})
     memoria_antes = deepcopy(resultado_memoria.datos)
     memoria = inicializar_memoria(resultado_memoria.datos)

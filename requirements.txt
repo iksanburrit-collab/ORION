@@ -1,0 +1,3 @@
+# Instalación reproducible de ORION y sus dependencias de ejecución.
+# Actualmente ORION solo usa la biblioteca estándar.
+-e .

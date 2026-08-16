@@ -4,7 +4,6 @@ from datetime import datetime, timezone
 import os
 from pathlib import Path
 import re
-from typing import Any
 
 from core.conocimiento import normalizar_para_busqueda
 from servicios.sistema.contratos import AplicacionRegistrada
@@ -12,7 +11,9 @@ from utilidades.archivos import cargar, guardar_json
 from utilidades.rutas import ruta_aplicaciones_usuario
 
 
-EXTENSIONES_PERMITIDAS = {".exe", ".lnk"}
+# Formatos de lanzamiento habituales en las plataformas compatibles. Se sigue
+# rechazando cualquier ruta que pueda convertirse en una cadena de comandos.
+EXTENSIONES_PERMITIDAS = {".app", ".desktop", ".exe", ".lnk"}
 
 
 class CatalogoAplicaciones:

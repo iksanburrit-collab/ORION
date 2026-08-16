@@ -1,61 +1,46 @@
-﻿"""
-Comandos relacionados con el navegador.
-"""
+"""Comandos relacionados con el navegador."""
 
-import os
 import urllib.parse
+import webbrowser
 
 
-def navegador_inteligente(t):
+def es_comando_navegador(texto: str) -> bool:
+    texto = texto.strip().lower()
+    return (
+        texto == "youtube"
+        or texto.startswith("youtube ")
+        or texto.startswith("busca ")
+        or texto.startswith("chatgpt ")
+    )
 
-    if t == "youtube":
 
-        os.startfile(
-            "https://youtube.com"
-        )
+def _abrir(url: str) -> bool:
+    """Abre una URL con el navegador predeterminado, sin depender del sistema operativo."""
+    try:
+        return webbrowser.open(url)
+    except (OSError, webbrowser.Error):
+        return False
 
-        return True
 
-    if t.startswith("youtube "):
+def navegador_inteligente(texto: str) -> bool:
+    texto = texto.strip().lower()
 
-        q = t.replace(
-            "youtube ",
-            ""
-        )
+    if texto == "youtube":
+        return _abrir("https://youtube.com")
 
-        os.startfile(
+    if texto.startswith("youtube "):
+        consulta = texto.removeprefix("youtube ").strip()
+        return _abrir(
             "https://youtube.com/results?search_query="
-            + urllib.parse.quote(q)
+            + urllib.parse.quote_plus(consulta)
         )
 
-        return True
+    if texto.startswith("busca "):
+        consulta = texto.removeprefix("busca ").strip()
+        return _abrir("https://google.com/search?q=" + urllib.parse.quote_plus(consulta))
 
-    if t.startswith("busca "):
-
-        q = t.replace(
-            "busca ",
-            ""
-        )
-
-        os.startfile(
-            "https://google.com/search?q="
-            + urllib.parse.quote(q)
-        )
-
-        return True
-
-    if t.startswith("chatgpt "):
-
-        q = t.replace(
-            "chatgpt ",
-            ""
-        )
-
-        os.startfile(
-            "https://chat.openai.com/chat"
-            + urllib.parse.quote(q)
-        )
-
-        return True
+    if texto.startswith("chatgpt "):
+        consulta = texto.removeprefix("chatgpt ").strip()
+        return _abrir("https://chat.openai.com/?q=" + urllib.parse.quote_plus(consulta))
 
     return False

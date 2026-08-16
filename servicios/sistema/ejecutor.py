@@ -25,9 +25,6 @@ class EjecutorAccionesPC:
         if not permitido:
             return ResultadoAccion(False, motivo, nombre, tipo_error="accion_no_permitida"), None
 
-        if platform.system() not in accion.sistemas_compatibles:
-            return ResultadoAccion(False, "Sistema no compatible.", nombre, tipo_error="sistema_no_compatible"), None
-
         if requiere_confirmacion(accion, self.config):
             return None, {
                 "tipo": "confirmar_accion_pc",
@@ -57,6 +54,14 @@ class EjecutorAccionesPC:
         if not accion:
             return ResultadoAccion(False, "Accion no registrada.", nombre, tipo_error="accion_no_registrada")
 
+        if platform.system() not in accion.sistemas_compatibles:
+            return ResultadoAccion(
+                False,
+                "Sistema no compatible.",
+                nombre,
+                tipo_error="sistema_no_compatible",
+            )
+
         permitidos = {
             clave: parametros[clave]
             for clave in accion.parametros_permitidos
@@ -72,7 +77,7 @@ class EjecutorAccionesPC:
                 parametros_permitidos=["aplicacion"],
                 nivel_riesgo="bajo",
                 requiere_confirmacion=False,
-                sistemas_compatibles=["Windows"],
+                sistemas_compatibles=["Windows", "Linux", "Darwin"],
                 ejecutor=acciones_pc.abrir_aplicacion,
             )
         )
@@ -83,7 +88,7 @@ class EjecutorAccionesPC:
                 parametros_permitidos=["aplicacion"],
                 nivel_riesgo="medio",
                 requiere_confirmacion=True,
-                sistemas_compatibles=["Windows"],
+                sistemas_compatibles=["Windows", "Linux", "Darwin"],
                 ejecutor=acciones_pc.cerrar_aplicacion,
             )
         )

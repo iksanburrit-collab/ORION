@@ -8,6 +8,23 @@ Responsabilidades:
 - Devolver una intención para que main.py actúe.
 """
 
+import re
+
+
+_EXPRESION_CALCULADORA = re.compile(r"[0-9.\s+\-*/^()]+")
+
+
+def _es_calculo(texto: str) -> bool:
+    if texto.startswith("raiz "):
+        return True
+    if re.fullmatch(r"pot\s+\S+\s+\S+", texto):
+        return True
+    if texto.startswith("sqrt("):
+        return True
+    return bool(_EXPRESION_CALCULADORA.fullmatch(texto)) and any(
+        operador in texto for operador in ("+", "-", "*", "/", "^")
+    )
+
 def detectar_intencion(t):
 
     t = t.lower()
@@ -62,19 +79,7 @@ def detectar_intencion(t):
     if "estado" in t:
         return "estado"
 
-    if any(
-        x in t
-        for x in [
-            "calc",
-            "+",
-            "-",
-            "*",
-            "/",
-            "raiz",
-            "pot",
-            "^"
-        ]
-    ):
+    if _es_calculo(t):
         return "calc"
 
     if "ayuda" in t:

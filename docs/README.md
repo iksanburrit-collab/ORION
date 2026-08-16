@@ -144,25 +144,54 @@ git clone https://github.com/iksanburrit-collab/ORION.git
 cd ORION
 ```
 
-Instala las dependencias:
+Requiere Python 3.10 o posterior. Crea un entorno aislado e instala ORION:
 
 ```bash
-pip install -r requirements.txt
+python3 -m venv .venv
+. .venv/bin/activate        # Linux/macOS
+# .venv\Scripts\activate     # Windows PowerShell
+python -m pip install --upgrade pip
+python -m pip install -e .
 ```
 
-Crea un archivo `.env` utilizando como base el archivo `.env.example`.
+También puedes usar el archivo compatible con flujos basados en requirements:
 
-Dentro del archivo coloca tu clave:
+```bash
+python -m pip install -r requirements.txt
+```
+
+Para ejecutar pruebas, cobertura y lint instala las herramientas opcionales:
+
+```bash
+python -m pip install -e ".[dev]"
+pytest
+coverage run -m pytest
+coverage report
+ruff check .
+```
+
+Crea un archivo `.env` a partir de `.env.example`. Groq es opcional: sin una clave, ORION continúa con Ollama si está disponible.
+
+Dentro del archivo, si vas a usar Groq, coloca tu clave:
 
 ```env
 GROQ_API_KEY=TU_API_KEY
 ```
 
-Finalmente ejecuta ORION:
+Para usar Ollama, instálalo y descarga el modelo configurado (por defecto `qwen3:1.7b`):
 
 ```bash
-python main.py
+ollama pull qwen3:1.7b
 ```
+
+Finalmente ejecuta ORION desde la raíz del proyecto:
+
+```bash
+orion
+# o: python main.py
+```
+
+Los datos locales (memoria, notas, tareas, configuración y catálogo de aplicaciones) se guardan fuera del código: en Linux, `$XDG_DATA_HOME/orion` o `~/.local/share/orion`; en macOS, `~/Library/Application Support/ORION`; y en Windows, `%APPDATA%\\ORION`. Puedes cambiarlo con `ORION_DATA_DIR`. Las instalaciones antiguas que ya tenían datos en la raíz del proyecto los siguen usando. No compartas `.env` ni esos datos.
 
 ---
 

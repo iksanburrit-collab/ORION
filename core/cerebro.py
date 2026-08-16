@@ -5,7 +5,7 @@ import random
 from typing import Any, Callable
 
 from comandos.calculadora import ejecutar_calculadora
-from comandos.navegador import navegador_inteligente
+from comandos.navegador import es_comando_navegador, navegador_inteligente
 from comandos.sistema import mostrar_ayuda, mostrar_perfil
 from core.handlers.alias import procesar_alias
 from core.handlers.aplicaciones import (
@@ -526,9 +526,13 @@ def _resolver_comandos_locales(
     if _resolver_consulta_memoria(texto, memoria, config, resultado):
         return True
 
-    if navegador_inteligente(texto):
+    if es_comando_navegador(texto):
         resultado.intencion = "navegador"
-        resultado.accion = "navegador"
+        if navegador_inteligente(texto):
+            resultado.accion = "navegador"
+        else:
+            resultado.accion = "error_navegador"
+            resultado.respuesta = "No pude abrir el navegador predeterminado."
         return True
 
     ayuda = ayuda_comando_local_invalido(texto)

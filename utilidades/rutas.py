@@ -1,16 +1,41 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+import os
 from pathlib import Path
+import platform
 from typing import Iterator
 
 
 _RAIZ_PROYECTO = Path(__file__).resolve().parents[1]
 _BASE_DATOS_PRUEBAS: Path | None = None
+_ARCHIVOS_LEGACY = (
+    "memoria.json",
+    "notas.json",
+    "recordatorios.json",
+    "config.json",
+    "alias.json",
+)
 
 
 def raiz_proyecto() -> Path:
-    return _BASE_DATOS_PRUEBAS or _RAIZ_PROYECTO
+    if _BASE_DATOS_PRUEBAS is not None:
+        return _BASE_DATOS_PRUEBAS
+
+    ruta_configurada = os.environ.get("ORION_DATA_DIR")
+    if ruta_configurada:
+        return Path(ruta_configurada).expanduser().resolve()
+
+    # Mantiene los datos de instalaciones previas que se guardaban junto al código.
+    if any((_RAIZ_PROYECTO / archivo).exists() for archivo in _ARCHIVOS_LEGACY):
+        return _RAIZ_PROYECTO
+
+    sistema = platform.system()
+    if sistema == "Windows":
+        return Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming")) / "ORION"
+    if sistema == "Darwin":
+        return Path.home() / "Library" / "Application Support" / "ORION"
+    return Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share")) / "orion"
 
 
 def configurar_base_datos(ruta: str | Path | None) -> None:
