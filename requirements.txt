@@ -3,7 +3,7 @@
 # En tiempo de ejecución ORION usa platformdirs para resolver el directorio
 # de datos del usuario; es la única dependencia de terceros en producción.
 #
-# La siguiente línea instala ORION en modo editable junto con sus
-# dependencias de desarrollo (pytest, coverage, pytest-cov y ruff),
-# definidas como el extra "dev" en pyproject.toml.
--e .[dev]
+# La siguiente línea instala ORION en modo editable sin dependencias de
+# desarrollo (pytest, coverage, pytest-cov y ruff), que se instalan con
+# requirements-dev.txt o con "pip install -e .[dev]".
+-e .

@@ -29,7 +29,7 @@ def calcular_edad(fecha):
 
         return edad
 
-    except:
+    except ValueError:
 
         return ""
 

@@ -6,9 +6,9 @@ Arquitectura
 - [x] Crear estructura del proyecto.
 - [x] Crear utilidades.
 - [x] Separar memoria.
-- [ ] Separar personalidad.
-- [ ] Separar navegador.
-- [ ] Separar comandos.
+- [x] Separar personalidad.
+- [x] Separar navegador.
+- [x] Separar comandos.
 
 ---
 

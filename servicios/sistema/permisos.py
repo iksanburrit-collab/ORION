@@ -11,7 +11,7 @@ RIESGO_ALTO = "alto"
 def accion_permitida(accion: AccionPC, config: dict) -> tuple[bool, str]:
     sistema = config.get("sistema", {}) if isinstance(config, dict) else {}
 
-    if not sistema.get("control_pc_activado", True):
+    if not sistema.get("control_pc_activado", False):
         return False, "El control del PC esta desactivado."
 
     if accion.nivel_riesgo == RIESGO_ALTO and not sistema.get("permitir_riesgo_alto", False):

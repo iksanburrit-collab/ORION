@@ -22,7 +22,7 @@ CONFIG_PREDETERMINADA: dict[str, Any] = {
         "maximo_mostradas": 20,
     },
     "sistema": {
-        "control_pc_activado": True,
+        "control_pc_activado": False,
         "descubrimiento_aplicaciones": True,
         "escaneo_ligero_inicio": False,
         "confirmar_riesgo_medio": True,

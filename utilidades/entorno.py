@@ -3,10 +3,30 @@
 import os
 from pathlib import Path
 
+from utilidades.rutas import raiz_proyecto
 
-def cargar_entorno(ruta: str | Path = ".env") -> None:
-    """Carga pares KEY=VALUE y conserva las variables ya definidas en el entorno."""
-    archivo = Path(ruta)
+
+def _ruta_env() -> Path:
+    raiz = raiz_proyecto()
+    candidatas = [
+        raiz / ".env",
+        Path(__file__).resolve().parents[1] / ".env",
+        Path(".env").resolve(),
+    ]
+    for candidata in candidatas:
+        if candidata.is_file():
+            return candidata
+    return candidatas[0]
+
+
+def cargar_entorno(ruta: str | Path | None = None) -> None:
+    """Carga pares KEY=VALUE y conserva las variables ya definidas en el entorno.
+
+    Si no se indica ruta, busca .env en el directorio de datos de ORION
+    (ORION_DATA_DIR o el directorio de datos de la plataforma) y, como
+    respaldo, junto al proyecto o en el directorio actual.
+    """
+    archivo = Path(ruta) if ruta is not None else _ruta_env()
     if not archivo.is_file():
         return
 

@@ -68,9 +68,21 @@ def mostrar_debug_ia(debug: dict[str, Any] | None) -> None:
         print(f"{tiempo:.2f} s")
 
 
+_USO = """Uso:
+  orion [--help]
+
+Opciones:
+  -h, --help  Muestra esta ayuda y sale.
+"""
+
+
 def ejecutar() -> None:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
+
+    if any(arg in ("-h", "--help") for arg in sys.argv[1:]):
+        print(_USO, end="")
+        return
 
     print("Iniciando ORION v2.0...")
     estado = inicializar_orion()
@@ -91,40 +103,44 @@ def ejecutar() -> None:
         guardar_json(ruta_configuracion(), config)
 
     while True:
-        comando = normalizar_comando(input("\nORION> "))
-        resultado = procesar(
-            comando,
-            memoria,
-            config,
-            notas=notas,
-            alias=alias,
-            recordatorios=recordatorios,
-            guardar_notas=guardar_notas,
-            guardar_alias=guardar_alias,
-            guardar_config=guardar_config,
-            archivo_notas=ruta_notas(),
-        )
-
-        if resultado.respuesta:
-            print(resultado.respuesta)
-
-        mostrar_debug_ia(resultado.debug)
-
-        solicitud = resultado.solicitud_pendiente or resultado.solicitud
-        if solicitud:
-            if isinstance(solicitud, dict):
-                print(solicitud.get("texto_confirmacion", "Confirma la accion:"))
-            valor = input("> ")
-            resultado_solicitud = completar_solicitud(
-                solicitud,
-                valor,
+        try:
+            comando = normalizar_comando(input("\nORION> "))
+            resultado = procesar(
+                comando,
                 memoria,
                 config,
+                notas=notas,
+                alias=alias,
+                recordatorios=recordatorios,
+                guardar_notas=guardar_notas,
+                guardar_alias=guardar_alias,
+                guardar_config=guardar_config,
+                archivo_notas=ruta_notas(),
             )
-            if resultado_solicitud.respuesta:
-                print(resultado_solicitud.respuesta)
 
-        if resultado.salir:
+            if resultado.respuesta:
+                print(resultado.respuesta)
+
+            mostrar_debug_ia(resultado.debug)
+
+            solicitud = resultado.solicitud_pendiente or resultado.solicitud
+            if solicitud:
+                if isinstance(solicitud, dict):
+                    print(solicitud.get("texto_confirmacion", "Confirma la accion:"))
+                valor = input("> ")
+                resultado_solicitud = completar_solicitud(
+                    solicitud,
+                    valor,
+                    memoria,
+                    config,
+                )
+                if resultado_solicitud.respuesta:
+                    print(resultado_solicitud.respuesta)
+
+            if resultado.salir:
+                break
+        except (EOFError, KeyboardInterrupt):
+            print("\nApagando ORION 👋")
             break
 
 

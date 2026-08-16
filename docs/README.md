@@ -82,7 +82,8 @@ ORION/
 ├── core/
 │   ├── cerebro.py
 │   ├── handlers/
-│   ├── memoria.py
+│   ├── memoria/
+│   ├── conocimiento/
 │   ├── personalidad.py
 │   └── ...
 │
