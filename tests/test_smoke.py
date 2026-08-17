@@ -60,11 +60,14 @@ class SmokeTests(unittest.TestCase):
         self.assertEqual(recargada["perfil"]["nombre"], "Ana")
 
     @mock.patch("comandos.navegador.webbrowser.open", return_value=True)
-    def test_navegador(self, abrir):
+    def test_buscar_genera_plan_sin_abrir_navegador(self, abrir):
         resultado = procesar("busca gatos", self.memoria, self.config)
 
-        self.assertEqual(resultado.accion, "navegador")
-        abrir.assert_called_once()
+        self.assertEqual(resultado.accion, "planificar")
+        self.assertEqual(len(resultado.acciones), 1)
+        self.assertEqual(resultado.acciones[0].tool, "abrir_navegador")
+        self.assertEqual(resultado.acciones[0].entidad.valor, "gatos")
+        abrir.assert_not_called()
 
     @mock.patch("core.handlers.ia.generar_respuesta")
     def test_proveedor_ia_con_mocks(self, generar):

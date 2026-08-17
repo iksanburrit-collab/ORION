@@ -43,10 +43,10 @@ class EstabilizacionSprintTests(unittest.TestCase):
 
     @mock.patch("core.tools.herramientas.navegador.navegador_inteligente")
     @mock.patch("core.handlers.ia.generar_respuesta")
-    def test_busca_aplicacion_no_llama_navegador(self, generar, navegador):
+    def test_busca_aplicacion_genera_plan_sin_ejecutar(self, generar, navegador):
         resultado = procesar("busca aplicacion chrome", self.memoria, self.config)
 
-        self.assertEqual(resultado.accion, "buscar_aplicacion")
+        self.assertEqual(resultado.accion, "planificar")
         navegador.assert_not_called()
         generar.assert_not_called()
 
@@ -79,11 +79,11 @@ class EstabilizacionSprintTests(unittest.TestCase):
 
     @mock.patch("core.tools.herramientas.navegador.navegador_inteligente", return_value=True)
     @mock.patch("core.handlers.ia.generar_respuesta")
-    def test_busqueda_web_generica_sigue_en_navegador(self, generar, navegador):
+    def test_busqueda_web_generica_genera_plan(self, generar, navegador):
         resultado = procesar("busca clima de manana", self.memoria, self.config)
 
-        self.assertEqual(resultado.accion, "navegador")
-        navegador.assert_called_once()
+        self.assertEqual(resultado.accion, "planificar")
+        navegador.assert_not_called()
         generar.assert_not_called()
 
     def test_recordatorio_no_lo_captura_notas_legacy(self):

@@ -39,12 +39,14 @@ class CompatibilidadMultiplataformaTests(unittest.TestCase):
 
         self.assertEqual(abrir.call_count, 3)
 
-    def test_fallo_del_navegador_da_error_claro_al_orquestador(self):
+    def test_buscar_genera_plan_sin_abrir_navegador(self):
         with mock.patch("core.tools.herramientas.navegador.navegador_inteligente", return_value=False):
             resultado = procesar("busca orion", {}, {"ia": {"activada": False}})
 
-        self.assertEqual(resultado.accion, "error_navegador")
-        self.assertIn("No pude abrir el navegador", resultado.respuesta)
+        self.assertEqual(resultado.accion, "planificar")
+        self.assertEqual(len(resultado.acciones), 1)
+        self.assertEqual(resultado.acciones[0].tool, "abrir_navegador")
+        self.assertIn("Plan generado:", resultado.respuesta)
 
     @mock.patch("servicios.sistema.acciones_pc.subprocess.Popen")
     def test_abre_formatos_por_plataforma(self, popen):

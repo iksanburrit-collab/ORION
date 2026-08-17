@@ -39,7 +39,9 @@ from core.handlers.tareas import (
     puede_manejar_tareas,
     procesar_tareas,
 )
+from core.interprete import analizar
 from core.intenciones import detectar_intencion
+from core.planificador import Plan, planificar
 from core.memoria import (
     actualizar_perfil,
     agregar_historial,
@@ -76,6 +78,9 @@ def procesar(
         texto=texto,
         intencion=intencion,
     )
+
+    if _resolver_planificacion(texto, resultado):
+        return resultado
 
     if _resolver_comandos_locales(
         texto,
@@ -142,6 +147,45 @@ def procesar(
     resultado.accion = "desconocido"
 
     return resultado
+
+
+def _resolver_planificacion(
+    texto: str,
+    resultado: ResultadoCerebro,
+) -> bool:
+    """Ruta interprete + planificador: construye el plan sin ejecutar.
+
+    Solo reclama frases que el interprete reconoce y que el planificador
+    puede resolver (al menos una accion planificable). El plan se
+    devuelve como acciones de ResultadoCerebro; la ejecucion de los
+    pasos pertenece a una fase posterior.
+    """
+    analisis = analizar(texto)
+
+    if not analisis:
+        return False
+
+    plan = planificar(analisis)
+
+    if not (plan.reconocido and plan.resoluble):
+        return False
+
+    resultado.intencion = "planificacion"
+    resultado.accion = "planificar"
+    resultado.reconocido = True
+    resultado.acciones = plan.pasos
+    resultado.respuesta = _texto_plan(plan)
+    return True
+
+
+def _texto_plan(plan: Plan) -> str:
+    """Describe el plan como respuesta, sin afirmar ejecucion alguna."""
+    descripciones = [
+        f"{paso.verbo} {paso.entidad.valor}" if paso.entidad else paso.verbo
+        for paso in plan.pasos
+    ]
+    return "Plan generado: " + " y después ".join(descripciones) + "."
+
 
 def completar_solicitud(
     solicitud: str | dict[str, Any],
