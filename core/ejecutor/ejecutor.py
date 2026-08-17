@@ -8,6 +8,8 @@ texto del usuario.
 
 from __future__ import annotations
 
+from typing import Any
+
 from core.ejecutor.contratos import (
     ESTADO_BLOQUEADO,
     ESTADO_EXITOSO,
@@ -30,7 +32,11 @@ class EjecutorPlan:
     def __init__(self, registro: ToolRegistry | None = None) -> None:
         self._registro = registro or _REGISTRO_DEFECTO
 
-    def ejecutar(self, plan: Plan) -> ResultadoEjecucion:
+    def ejecutar(
+        self,
+        plan: Plan,
+        config: dict[str, Any] | None = None,
+    ) -> ResultadoEjecucion:
         resultados = []
         detenido = False
 
@@ -54,8 +60,12 @@ class EjecutorPlan:
                 detenido = True
                 continue
 
+            parametros = paso.parametros
+            if config is not None:
+                parametros = {**parametros, "config": config}
+
             try:
-                resultado_tool = self._registro.ejecutar(paso.tool, paso.parametros)
+                resultado_tool = self._registro.ejecutar(paso.tool, parametros)
             except Exception as exc:
                 resultados.append(
                     _resultado_fallido(

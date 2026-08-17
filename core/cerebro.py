@@ -14,6 +14,7 @@ from core.handlers.configuracion import procesar_configuracion
 from core.handlers.contratos import ResultadoCerebro
 from core.handlers.ia import resolver_ia
 from core.handlers.intencion import resolver_intencion
+from core.ejecutor import EjecutorPlan
 from core.tools import ejecutar_herramienta
 from core.handlers.memoria import (
     confirmar_accion_memoria,
@@ -41,7 +42,7 @@ from core.handlers.tareas import (
 )
 from core.interprete import analizar
 from core.intenciones import detectar_intencion
-from core.planificador import Plan, planificar
+from core.planificador import planificar
 from core.memoria import (
     actualizar_perfil,
     agregar_historial,
@@ -79,7 +80,7 @@ def procesar(
         intencion=intencion,
     )
 
-    if _resolver_planificacion(texto, resultado):
+    if _resolver_planificacion(texto, resultado, config):
         return resultado
 
     if _resolver_comandos_locales(
@@ -152,13 +153,16 @@ def procesar(
 def _resolver_planificacion(
     texto: str,
     resultado: ResultadoCerebro,
+    config: dict[str, Any],
 ) -> bool:
-    """Ruta interprete + planificador: construye el plan sin ejecutar.
+    """Ruta interprete + planificador + ejecutor.
 
-    Solo reclama frases que el interprete reconoce y que el planificador
-    puede resolver (al menos una accion planificable). El plan se
-    devuelve como acciones de ResultadoCerebro; la ejecucion de los
-    pasos pertenece a una fase posterior.
+    Construye el plan y lo ejecuta EN ORDEN a traves de core/ejecutor
+    (EjecutorPlan). Solo reclama frases que el interprete reconoce y
+    cuyo plan es reconocido y resoluble; el resto continua con los
+    handlers antiguos. La ejecucion usa ToolRegistry como unica via a
+    las Tools y respeta la puerta de permisos (EjecutorAccionesPC) que
+    vive dentro de cada Tool de acciones de PC.
     """
     analisis = analizar(texto)
 
@@ -170,21 +174,36 @@ def _resolver_planificacion(
     if not (plan.reconocido and plan.resoluble):
         return False
 
+    ejecucion = _EJECUTOR_PLAN.ejecutar(plan, config=config)
+
     resultado.intencion = "planificacion"
-    resultado.accion = "planificar"
+    resultado.accion = "ejecutar_plan"
     resultado.reconocido = True
     resultado.acciones = plan.pasos
-    resultado.respuesta = _texto_plan(plan)
+    resultado.respuestas = tuple(
+        paso_ejecucion.respuesta
+        for paso_ejecucion in ejecucion.resultados
+        if paso_ejecucion.respuesta
+    )
+    resultado.respuesta = resultado.respuesta_compuesta()
+    resultado.debug = {
+        "plan": {
+            "reconocido": plan.reconocido,
+            "resoluble": plan.resoluble,
+            "pasos": len(plan.pasos),
+        },
+        "ejecucion": {
+            "exito": ejecucion.exito,
+            "ejecutados": len(ejecucion.pasos_ejecutados()),
+            "fallidos": len(ejecucion.pasos_fallidos()),
+            "bloqueados": len(ejecucion.pasos_bloqueados()),
+            "omitidos": len(ejecucion.pasos_omitidos()),
+        },
+    }
     return True
 
 
-def _texto_plan(plan: Plan) -> str:
-    """Describe el plan como respuesta, sin afirmar ejecucion alguna."""
-    descripciones = [
-        f"{paso.verbo} {paso.entidad.valor}" if paso.entidad else paso.verbo
-        for paso in plan.pasos
-    ]
-    return "Plan generado: " + " y después ".join(descripciones) + "."
+_EJECUTOR_PLAN = EjecutorPlan()
 
 
 def completar_solicitud(
