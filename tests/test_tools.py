@@ -417,7 +417,7 @@ class NavegadorTests(unittest.TestCase):
 class IntegracionOrionTests(unittest.TestCase):
     @mock.patch("servicios.sistema.acciones_pc.shutil.which", return_value="/usr/bin/xdg-open")
     @mock.patch("servicios.sistema.acciones_pc.subprocess.Popen")
-    def test_procesar_abre_brave_genera_plan_sin_ejecutar(self, popen, which):
+    def test_procesar_abre_brave_ejecuta_la_tool(self, popen, which):
         with tempfile.TemporaryDirectory() as temporal:
             configurar_base_datos(temporal)
             try:
@@ -428,11 +428,12 @@ class IntegracionOrionTests(unittest.TestCase):
                 memoria = inicializar_memoria({})
                 resultado = procesar("abre brave", memoria, config_con_control_pc())
 
-                self.assertEqual(resultado.accion, "planificar")
+                self.assertEqual(resultado.accion, "ejecutar_plan")
                 self.assertEqual(len(resultado.acciones), 1)
                 self.assertEqual(resultado.acciones[0].tool, "abrir_aplicacion")
                 self.assertEqual(resultado.acciones[0].entidad.valor, "brave")
-                popen.assert_not_called()
+                self.assertEqual(resultado.respuesta, "Abriendo Brave Browser.")
+                popen.assert_called_once()
             finally:
                 configurar_base_datos(None)
 

@@ -11,6 +11,7 @@ sys.path.insert(0, str(RAIZ))
 from core.cerebro import procesar
 from core.memoria import inicializar_memoria
 from ia.contratos import RespuestaIA
+from servicios.sistema.contratos import ResultadoAccion
 from utilidades.rutas import configurar_base_datos
 
 
@@ -27,11 +28,18 @@ class Paso4PlanificacionCerebroTests(unittest.TestCase):
 
 
 class ComandoSimpleTests(Paso4PlanificacionCerebroTests):
-    def test_abre_steam_genera_una_accion_planificada(self):
+    @mock.patch("core.tools.herramientas.aplicaciones.EjecutorAccionesPC")
+    def test_abre_steam_ejecuta_la_tool(self, ej_pc):
+        instancia = ej_pc.return_value
+        instancia.preparar.return_value = (
+            ResultadoAccion(exito=True, mensaje="Abriendo Steam.", accion="abrir_aplicacion"),
+            None,
+        )
+
         resultado = procesar("abre Steam", self.memoria, self.config)
 
         self.assertTrue(resultado.reconocido)
-        self.assertEqual(resultado.accion, "planificar")
+        self.assertEqual(resultado.accion, "ejecutar_plan")
         self.assertEqual(len(resultado.acciones), 1)
 
         paso = resultado.acciones[0]
@@ -39,11 +47,20 @@ class ComandoSimpleTests(Paso4PlanificacionCerebroTests):
         self.assertEqual(paso.entidad.valor, "Steam")
         self.assertEqual(paso.tool, "abrir_aplicacion")
         self.assertEqual(paso.parametros, {"aplicacion": "Steam"})
-        self.assertEqual(resultado.respuesta, "Plan generado: abrir Steam.")
+        self.assertEqual(resultado.respuesta, "Abriendo Steam.")
+        ej_pc.assert_called_once()
 
 
 class ComandoCompuestoTests(Paso4PlanificacionCerebroTests):
-    def test_abre_chrome_y_busca_youtube_dos_acciones_ordenadas(self):
+    @mock.patch("comandos.navegador.webbrowser.open", return_value=True)
+    @mock.patch("core.tools.herramientas.aplicaciones.EjecutorAccionesPC")
+    def test_abre_chrome_y_busca_youtube_ejecuta_ambas_en_orden(self, ej_pc, abrir):
+        instancia = ej_pc.return_value
+        instancia.preparar.return_value = (
+            ResultadoAccion(exito=True, mensaje="Abriendo Chrome.", accion="abrir_aplicacion"),
+            None,
+        )
+
         resultado = procesar("abre Chrome y busca YouTube", self.memoria, self.config)
 
         self.assertEqual(len(resultado.acciones), 2)
@@ -55,8 +72,9 @@ class ComandoCompuestoTests(Paso4PlanificacionCerebroTests):
         self.assertEqual(segunda.tool, "abrir_navegador")
         self.assertEqual(
             resultado.respuesta,
-            "Plan generado: abrir Chrome y después buscar YouTube.",
+            "Abriendo Chrome.\nNavegador abierto.",
         )
+        abrir.assert_called_once()
 
     def test_abre_chrome_despues_busca_gatos(self):
         resultado = procesar("abre Chrome despues busca gatos", self.memoria, self.config)
@@ -99,7 +117,18 @@ class EntidadesMultiPalabraTests(Paso4PlanificacionCerebroTests):
         self.assertEqual(paso.entidad.valor, "Visual Studio Code")
         self.assertEqual(paso.parametros, {"aplicacion": "Visual Studio Code"})
 
-    def test_abre_vscode_y_luego_abre_mi_proyecto_orion(self):
+    @mock.patch("core.tools.herramientas.aplicaciones.EjecutorAccionesPC")
+    def test_abre_vscode_y_luego_abre_mi_proyecto_orion(self, ej_pc):
+        instancia = ej_pc.return_value
+        instancia.preparar.side_effect = lambda nombre, parametros: (
+            ResultadoAccion(
+                exito=True,
+                mensaje=f"Abriendo {parametros.get('aplicacion')}.",
+                accion=nombre,
+            ),
+            None,
+        )
+
         resultado = procesar(
             "abre VS Code y luego abre mi proyecto ORION",
             self.memoria,
@@ -112,10 +141,8 @@ class EntidadesMultiPalabraTests(Paso4PlanificacionCerebroTests):
         self.assertEqual(primera.entidad.valor, "VS Code")
         self.assertEqual(primera.tool, "abrir_aplicacion")
         self.assertEqual(segunda.entidad.valor, "mi proyecto ORION")
-        self.assertEqual(
-            resultado.respuesta,
-            "Plan generado: abrir VS Code y después abrir mi proyecto ORION.",
-        )
+        self.assertEqual(resultado.respuesta, "Abriendo VS Code.")
+        self.assertEqual(resultado.debug["ejecucion"]["omitidos"], 1)
 
 
 class IntencionesExistentesTests(Paso4PlanificacionCerebroTests):
@@ -189,24 +216,34 @@ class IAUltimoRecursoTests(Paso4PlanificacionCerebroTests):
 
         resultado = procesar("abre Steam", self.memoria, self.config)
 
-        self.assertEqual(resultado.accion, "planificar")
+        self.assertEqual(resultado.accion, "ejecutar_plan")
         generar.assert_not_called()
 
 
-class NoEjecucionTests(Paso4PlanificacionCerebroTests):
+class EjecucionSeguraTests(Paso4PlanificacionCerebroTests):
+    @mock.patch("core.tools.herramientas.aplicaciones.EjecutorAccionesPC")
     @mock.patch("core.cerebro.ejecutar_herramienta")
-    def test_abre_steam_no_ejecuta_tools(self, ejecutar):
+    def test_abre_steam_ejecuta_via_ejecutor_sin_helper_directo(self, ejecutar, ej_pc):
+        instancia = ej_pc.return_value
+        instancia.preparar.return_value = (
+            ResultadoAccion(exito=True, mensaje="Abriendo Steam.", accion="abrir_aplicacion"),
+            None,
+        )
+
         resultado = procesar("abre Steam", self.memoria, self.config)
 
-        self.assertEqual(resultado.accion, "planificar")
+        self.assertEqual(resultado.accion, "ejecutar_plan")
+        self.assertEqual(resultado.respuesta, "Abriendo Steam.")
         ejecutar.assert_not_called()
+        ej_pc.assert_called_once()
 
     @mock.patch("comandos.navegador.webbrowser.open", return_value=True)
-    def test_busca_no_abre_navegador(self, abrir):
+    def test_busca_gatos_ejecuta_una_busqueda_web(self, abrir):
         resultado = procesar("busca gatos", self.memoria, self.config)
 
-        self.assertEqual(resultado.accion, "planificar")
-        abrir.assert_not_called()
+        self.assertEqual(resultado.accion, "ejecutar_plan")
+        self.assertEqual(resultado.respuesta, "Navegador abierto.")
+        abrir.assert_called_once()
 
 
 class NoReconocidaTests(Paso4PlanificacionCerebroTests):

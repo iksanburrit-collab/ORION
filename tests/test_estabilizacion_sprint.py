@@ -41,14 +41,17 @@ class EstabilizacionSprintTests(unittest.TestCase):
         os.chdir(self.cwd_original)
         self.tmp.cleanup()
 
+    @mock.patch("comandos.navegador.webbrowser.open", return_value=True)
     @mock.patch("core.tools.herramientas.navegador.navegador_inteligente")
     @mock.patch("core.handlers.ia.generar_respuesta")
-    def test_busca_aplicacion_genera_plan_sin_ejecutar(self, generar, navegador):
+    def test_busca_aplicacion_genera_plan_y_ejecuta_la_tool(self, generar, navegador, abrir):
         resultado = procesar("busca aplicacion chrome", self.memoria, self.config)
 
-        self.assertEqual(resultado.accion, "planificar")
+        self.assertEqual(resultado.accion, "ejecutar_plan")
+        self.assertEqual(resultado.respuesta, "Navegador abierto.")
         navegador.assert_not_called()
         generar.assert_not_called()
+        abrir.assert_called_once()
 
     @mock.patch("core.handlers.ia.generar_respuesta")
     def test_que_fecha_es_no_llama_ia(self, generar):
@@ -77,14 +80,17 @@ class EstabilizacionSprintTests(unittest.TestCase):
         )
         generar.assert_not_called()
 
+    @mock.patch("comandos.navegador.webbrowser.open", return_value=True)
     @mock.patch("core.tools.herramientas.navegador.navegador_inteligente", return_value=True)
     @mock.patch("core.handlers.ia.generar_respuesta")
-    def test_busqueda_web_generica_genera_plan(self, generar, navegador):
+    def test_busqueda_web_generica_genera_plan_y_ejecuta_la_tool(self, generar, navegador, abrir):
         resultado = procesar("busca clima de manana", self.memoria, self.config)
 
-        self.assertEqual(resultado.accion, "planificar")
+        self.assertEqual(resultado.accion, "ejecutar_plan")
+        self.assertEqual(resultado.respuesta, "Navegador abierto.")
         navegador.assert_not_called()
         generar.assert_not_called()
+        abrir.assert_called_once()
 
     def test_recordatorio_no_lo_captura_notas_legacy(self):
         notas = []

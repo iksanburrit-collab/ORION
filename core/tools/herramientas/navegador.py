@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from comandos.navegador import es_comando_navegador, navegador_inteligente
+from comandos.navegador import (
+    buscar_en_web,
+    es_comando_navegador,
+    navegador_inteligente,
+)
 from core.tools.contratos import Parametro, Tool, ToolResult
 
 
@@ -11,22 +15,32 @@ def abrir_navegador(
     aplicacion: str | None = None,
     config: dict[str, Any] | None = None,
 ) -> ToolResult:
-    """Abre el navegador con una busqueda web o con una aplicacion de navegacion."""
+    """Abre el navegador con una busqueda web o con una aplicacion de navegacion.
+
+    `consulta` viaja como dato estructurado: si es un comando de
+    navegacion conocido ("busca X", "youtube", "chatgpt X") se resuelve
+    como antes; si no, se trata como una busqueda web generica.
+    """
     if aplicacion is not None:
         from core.tools.herramientas.aplicaciones import abrir_aplicacion
 
         return abrir_aplicacion(aplicacion=aplicacion, config=config)
 
     if consulta:
+        consulta = consulta.strip()
+
         if es_comando_navegador(consulta):
             resultado = navegador_inteligente(consulta)
-            if resultado:
-                return ToolResult(
-                    exito=True,
-                    mensaje="Navegador abierto.",
-                    tool="abrir_navegador",
-                    datos={"consulta": consulta},
-                )
+        else:
+            resultado = buscar_en_web(consulta)
+
+        if resultado:
+            return ToolResult(
+                exito=True,
+                mensaje="Navegador abierto.",
+                tool="abrir_navegador",
+                datos={"consulta": consulta},
+            )
 
     return ToolResult(
         exito=False,

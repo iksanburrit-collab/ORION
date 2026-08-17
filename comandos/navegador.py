@@ -44,3 +44,19 @@ def navegador_inteligente(texto: str) -> bool:
         return _abrir("https://chat.openai.com/?q=" + urllib.parse.quote_plus(consulta))
 
     return False
+
+
+def buscar_en_web(consulta: str) -> bool:
+    """Realiza una busqueda web generica (Google) para una consulta estructurada.
+
+    La consulta se recibe como dato (no como texto de comando) y se
+    codifica de forma segura antes de abrir el navegador.
+    """
+    consulta = consulta.strip()
+
+    if not consulta:
+        return False
+
+    return _abrir(
+        "https://google.com/search?q=" + urllib.parse.quote_plus(consulta)
+    )
