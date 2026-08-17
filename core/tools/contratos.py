@@ -4,6 +4,11 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Literal
 
 
+POLITICA_AUTO = "auto"
+POLITICA_CONFIRMAR = "confirmar"
+POLITICA_BLOQUEAR = "bloquear"
+
+
 class ToolError(Exception):
     """Error de registro o de ejecucion de una Tool."""
 
@@ -26,6 +31,7 @@ class Tool:
     description: str
     ejecutor: Callable[..., "ToolResult"] = field(repr=False)
     parametros: tuple[Parametro, ...] = ()
+    politica: str = POLITICA_AUTO
 
 
 @dataclass(frozen=True)

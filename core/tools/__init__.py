@@ -1,4 +1,13 @@
-from core.tools.contratos import Parametro, Tool, ToolError, ToolNoEncontrada, ToolResult
+from core.tools.contratos import (
+    POLITICA_AUTO,
+    POLITICA_BLOQUEAR,
+    POLITICA_CONFIRMAR,
+    Parametro,
+    Tool,
+    ToolError,
+    ToolNoEncontrada,
+    ToolResult,
+)
 from core.tools.registro import (
     ToolRegistry,
     ejecutar_herramienta,
@@ -8,6 +17,9 @@ from core.tools.registro import (
 )
 
 __all__ = [
+    "POLITICA_AUTO",
+    "POLITICA_BLOQUEAR",
+    "POLITICA_CONFIRMAR",
     "Parametro",
     "Tool",
     "ToolError",

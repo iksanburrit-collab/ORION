@@ -83,6 +83,9 @@ class RegistroStub:
     def existe(self, nombre):
         return nombre in self._tools
 
+    def obtener(self, nombre):
+        return self._tools[nombre]
+
     def ejecutar(self, nombre, parametros=None):
         self.ejecutados.append((nombre, parametros or {}))
         return self._tools[nombre].ejecutor(**(parametros or {}))
@@ -92,7 +95,15 @@ class ContratosEjecutorTests(unittest.TestCase):
     def test_estados_de_ejecucion_son_los_esperados(self):
         self.assertEqual(
             ESTADOS_EJECUCION,
-            ("pendiente", "ejecutado", "exitoso", "fallido", "bloqueado", "omitido"),
+            (
+                "pendiente",
+                "ejecutado",
+                "exitoso",
+                "fallido",
+                "bloqueado",
+                "omitido",
+                "requiere_confirmacion",
+            ),
         )
 
     def test_resultado_ejecucion_es_contrato_congelado(self):

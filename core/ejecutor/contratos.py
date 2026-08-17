@@ -20,6 +20,7 @@ ESTADO_EXITOSO = "exitoso"
 ESTADO_FALLIDO = "fallido"
 ESTADO_BLOQUEADO = "bloqueado"
 ESTADO_OMITIDO = "omitido"
+ESTADO_REQUIERE_CONFIRMACION = "requiere_confirmacion"
 
 
 ESTADOS_EJECUCION = (
@@ -29,6 +30,7 @@ ESTADOS_EJECUCION = (
     ESTADO_FALLIDO,
     ESTADO_BLOQUEADO,
     ESTADO_OMITIDO,
+    ESTADO_REQUIERE_CONFIRMACION,
 )
 
 
@@ -46,6 +48,7 @@ class ResultadoPaso:
     respuesta: str = ""
     error: str | None = None
     datos: dict[str, Any] | None = None
+    solicitud: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -57,6 +60,9 @@ class ResultadoEjecucion:
     exito: bool = False
     respuesta_compuesta: str = ""
     metadatos: dict[str, Any] = field(default_factory=dict)
+    requiere_confirmacion: bool = False
+    paso_pendiente: ResultadoPaso | None = None
+    solicitud: dict[str, Any] | None = None
 
     def pasos_ejecutados(self) -> list[ResultadoPaso]:
         return [resultado for resultado in self.resultados if resultado.ejecutado]
@@ -69,3 +75,20 @@ class ResultadoEjecucion:
 
     def pasos_omitidos(self) -> list[ResultadoPaso]:
         return [resultado for resultado in self.resultados if resultado.estado == ESTADO_OMITIDO]
+
+    def pasos_con_confirmacion(self) -> list[ResultadoPaso]:
+        return [
+            resultado
+            for resultado in self.resultados
+            if resultado.estado == ESTADO_REQUIERE_CONFIRMACION
+        ]
+
+    def resultados_previos(self) -> list[ResultadoPaso]:
+        """Resultados anteriores al paso pendiente (sin incluirlo)."""
+        if self.paso_pendiente is None:
+            return list(self.resultados)
+        return [
+            resultado
+            for resultado in self.resultados
+            if resultado is not self.paso_pendiente
+        ]

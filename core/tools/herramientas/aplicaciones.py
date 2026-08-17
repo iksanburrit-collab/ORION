@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from core.conocimiento.normalizacion import normalizar_para_busqueda
-from core.tools.contratos import Parametro, Tool, ToolResult
+from core.tools.contratos import POLITICA_AUTO, Parametro, Tool, ToolResult
 from servicios.sistema.aplicaciones import CatalogoAplicaciones
 from servicios.sistema.ejecutor import EjecutorAccionesPC
 
@@ -70,6 +70,7 @@ TOOL_ABRIR_APLICACION = Tool(
         Parametro("config", requerido=False, tipo=dict, descripcion="Configuracion de permisos del sistema."),
     ),
     ejecutor=abrir_aplicacion,
+    politica=POLITICA_AUTO,
 )
 
 TOOL_LISTAR_APLICACIONES = Tool(
@@ -79,6 +80,7 @@ TOOL_LISTAR_APLICACIONES = Tool(
         Parametro("catalogo", requerido=False, tipo=CatalogoAplicaciones, descripcion="Catalogo opcional para pruebas."),
     ),
     ejecutor=listar_aplicaciones,
+    politica=POLITICA_AUTO,
 )
 
 TOOLS = (TOOL_ABRIR_APLICACION, TOOL_LISTAR_APLICACIONES)

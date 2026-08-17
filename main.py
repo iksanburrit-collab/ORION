@@ -5,6 +5,7 @@ import sys
 from typing import Any
 
 from core.cerebro import completar_solicitud, procesar
+from core.continuacion import continuar_solicitud, es_afirmacion, es_negacion
 from core.memoria import guardar_memoria, inicializar_memoria
 from servicios.calendario.legacy import migrar_recordatorios_legacy
 from servicios.notas import RepositorioNotas
@@ -76,6 +77,72 @@ Opciones:
 """
 
 
+def _atender_solicitudes(
+    resultado: Any,
+    memoria: dict[str, Any],
+    config: dict[str, Any],
+) -> bool:
+    """Presenta y completa las solicitudes pendientes del resultado.
+
+    Devuelve True si habia una solicitud que atender. main.py sigue
+    siendo un CLI delgado: la logica de continuacion de confirmaciones
+    de politica vive en core/continuacion, y las solicitudes antiguas
+    (confirmar_accion_pc, confirmar_memoria, etc.) se completan con el
+    flujo previo (completar_solicitud).
+    """
+    atendidas = False
+
+    while True:
+        solicitud = resultado.solicitud_pendiente or resultado.solicitud
+        if not solicitud:
+            break
+
+        atendidas = True
+
+        if isinstance(solicitud, dict) and solicitud.get("tipo") == "confirmar_politica":
+            resultado = _atender_confirmacion_politica(solicitud, config)
+            continue
+
+        resultado = _atender_solicitud_legacy(solicitud, memoria, config)
+
+    if atendidas and resultado.respuesta:
+        print(resultado.respuesta)
+
+    return atendidas
+
+
+def _atender_confirmacion_politica(
+    solicitud: dict[str, Any],
+    config: dict[str, Any],
+) -> Any:
+    while True:
+        texto = solicitud.get(
+            "texto_confirmacion",
+            "Se requiere confirmación para ejecutar la acción. ¿Deseas continuar? [s/n]",
+        )
+        print(texto)
+        valor = input("> ")
+
+        if es_afirmacion(valor):
+            return continuar_solicitud(solicitud, True, config)
+
+        if es_negacion(valor):
+            return continuar_solicitud(solicitud, False, config)
+
+        print("No entendí. Responde sí, no, confirmar, cancelar o detener.")
+
+
+def _atender_solicitud_legacy(
+    solicitud: str | dict[str, Any],
+    memoria: dict[str, Any],
+    config: dict[str, Any],
+) -> Any:
+    if isinstance(solicitud, dict):
+        print(solicitud.get("texto_confirmacion", "Confirma la accion:"))
+    valor = input("> ")
+    return completar_solicitud(solicitud, valor, memoria, config)
+
+
 def ejecutar() -> None:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
@@ -118,24 +185,11 @@ def ejecutar() -> None:
                 archivo_notas=ruta_notas(),
             )
 
-            if resultado.respuesta:
-                print(resultado.respuesta)
-
             mostrar_debug_ia(resultado.debug)
 
-            solicitud = resultado.solicitud_pendiente or resultado.solicitud
-            if solicitud:
-                if isinstance(solicitud, dict):
-                    print(solicitud.get("texto_confirmacion", "Confirma la accion:"))
-                valor = input("> ")
-                resultado_solicitud = completar_solicitud(
-                    solicitud,
-                    valor,
-                    memoria,
-                    config,
-                )
-                if resultado_solicitud.respuesta:
-                    print(resultado_solicitud.respuesta)
+            if not _atender_solicitudes(resultado, memoria, config):
+                if resultado.respuesta:
+                    print(resultado.respuesta)
 
             if resultado.salir:
                 break

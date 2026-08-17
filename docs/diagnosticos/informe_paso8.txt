@@ -1,0 +1,126 @@
+INFORME PASO 8 - Sistema de politicas/permisos por Tool
+=======================================================
+Fecha: 2026-08-16
+Proyecto: ORION-AI v2.0
+
+OBJETIVO
+--------
+Anadir un sistema de politicas/permisos por Tool (AUTO, CONFIRMAR,
+BLOQUEAR) evaluado de forma declarativa por el ejecutor ANTES de
+ejecutar cada paso del plan, con un nuevo estado de ejecucion
+"requiere_confirmacion" (que NO es un fallo), pausa en planes
+multipaso, conservacion de los resultados previos y compatibilidad
+con el resto de la arquitectura.
+
+CAMBIOS REALIZADOS
+------------------
+1. core/tools/contratos.py
+   - Nuevas constantes de politica: POLITICA_AUTO, POLITICA_CONFIRMAR,
+     POLITICA_BLOQUEAR.
+   - Dataclass Tool: nuevo campo "politica: str = POLITICA_AUTO".
+
+2. core/ejecutor/contratos.py
+   - Nuevo estado ESTADO_REQUIERE_CONFIRMACION = "requiere_confirmacion",
+     anadido a ESTADOS_EJECUCION (no a ESTADOS_EFECTIVOS, coherente con
+     que NO ejecuta).
+   - ResultadoPaso: nuevo campo "solicitud: dict | None".
+   - ResultadoEjecucion: nuevos campos "requiere_confirmacion",
+     "paso_pendiente", "solicitud", y el helper pasos_con_confirmacion()
+     y resultados_previos().
+
+3. core/ejecutor/ejecutor.py (EjecutorPlan.ejecutar)
+   - Antes de ejecutar cada paso: consulta la politica de la Tool via
+     ToolRegistry.obtener() (el registro sigue siendo la unica via).
+   - AUTO: ejecuta directamente (comportamiento anterior).
+   - CONFIRMAR: NO ejecuta la Tool; marca el paso como
+     requiere_confirmacion, construye una solicitud estructurada
+     (tipo, accion, tool, paso, motivo, parametros, texto_confirmacion)
+     y PAUSA el plan (los pasos posteriores no se ejecutan ni se
+     anaden; los resultados previos se conservan; no se re-ejecuta
+     nada).
+   - BLOQUEAR: NO ejecuta la Tool; estado bloqueado con motivo y
+     detencion del plan (igual que un fallo).
+   - requiere_confirmacion NO se trata como fallo (exito del
+     ResultadoEjecucion solo contempla ESTADO_FALLIDO).
+
+4. core/ejecutor/__init__.py
+   - Re-export de ESTADO_REQUIERE_CONFIRMACION.
+
+5. core/tools/__init__.py
+   - Re-export de las constantes de politica.
+
+6. core/tools/herramientas/aplicaciones.py y navegador.py
+   - Las Tools base (abrir_aplicacion, listar_aplicaciones,
+     abrir_navegador) se declaran explicitamente con
+     politica=POLITICA_AUTO. No hay Tools base CONFIRMAR/BLOQUEAR
+     (infraestructura preparada, sin inventar Tools).
+
+7. core/cerebro.py (_resolver_planificacion)
+   - Si la ejecucion requiere confirmacion y hay solicitud, se expone
+     en ResultadoCerebro.solicitud y solicitud_pendiente (sin convertirlo
+     en error) y la respuesta muestra el texto_confirmacion.
+   - El debug de ejecucion incluye "requiere_confirmacion" y
+     "paso_pendiente".
+
+8. Tests
+   - tests/test_ejecutor.py: RegistroStub.obtener(); ESTADOS_EJECUCION
+     actualizado con el nuevo estado.
+   - NUEVO tests/test_paso8_politicas.py: 15 tests cubriendo los 14
+     puntos obligatorios + integracion con cerebro.
+
+NO MODIFICADO (a proposito)
+---------------------------
+- Interprete, planificador y sus contratos.
+- EjecutorAccionesPC / servicios/sistema/permisos.py (la puerta de
+  permisos de PC sigue viviendo dentro de cada Tool).
+- main.py: la continuacion interactiva completa (recoger respuesta y
+  completar_solicitud para CONFIRMAR) queda PREPARADA en el contrato
+  (ResultadoCerebro.solicitud/solicitud_pendiente y el patron
+  existente de EjecutorAccionesPC con tipo "confirmar_accion_pc") pero
+  NO se implementa el gestor en este paso.
+
+PUNTOS OBLIGATORIOS (1-14) - COBERTURA
+--------------------------------------
+1. Politica declarativa asociada a la Tool: SI (campo Tool.politica).
+2. Evaluada en el ejecutor antes de ejecutar: SI (EjecutorPlan).
+3. Cadena paso planificable -> Tool existe -> parametros validos ->
+   politica -> ejecutar: SI.
+4. AUTO ejecuta directo: SI.
+5. CONFIRMAR no ejecuta y devuelve requiere_confirmacion: SI.
+6. Solicitud estructurada con paso/tool/motivo/info: SI.
+7. Multi-paso: pausa, no ejecuta posteriores: SI.
+8. Conserva resultados previos: SI (resultados_previos()).
+9. No re-ejecuta el primer paso al pausar: SI.
+10. BLOQUEAR no ejecuta, estado bloqueado + motivo: SI.
+11. requiere_confirmacion no es fallo: SI.
+12. ToolRegistry unica via: SI.
+13. EjecutorAccionesPC intacto como puerta de PC: SI.
+14. Interprete/planificador no modificados: SI.
+
+RESULTADOS
+----------
+- Suite completa: 392 passed, 116 subtests passed.
+- Nuevos tests PASO 8: 15/15.
+- ruff check .: sin errores.
+- compileall: OK.
+
+PRUEBAS MANUALES
+----------------
+- "hola" -> accion=saludar, sin solicitud.
+- "abre steam" -> ejecutar_plan, respuesta "El control del PC esta
+  desactivado." (puerta EjecutorAccionesPC intacta), exito=False,
+  requiere_confirmacion=False.
+- "busca gatos" -> ejecutar_plan, "Navegador abierto.", exito=True,
+  sin solicitud, navegador abierto en la maquina real.
+
+SIGUIENTES PASOS (fuera de este paso)
+-------------------------------------
+- Implementar en main.py la continuacion de una solicitud
+  confirmar_politica (presentar texto_confirmacion, recoger respuesta
+  y llamar a completar_solicitud) reutilizando el patron existente de
+  "confirmar_accion_pc".
+- Definir si futuras Tools de riesgo deben declararse CONFIRMAR o
+  BLOQUEAR (decision de producto, no de arquitectura).
+- Revisar el bug del navegador "brave" (helper XFCE del snap ejecuta
+  un binario inexistente): la solucion robusta recomendada es delegar
+  en xdg-open directamente en la Tool en vez de webbrowser.

@@ -7,7 +7,7 @@ from comandos.navegador import (
     es_comando_navegador,
     navegador_inteligente,
 )
-from core.tools.contratos import Parametro, Tool, ToolResult
+from core.tools.contratos import POLITICA_AUTO, Parametro, Tool, ToolResult
 
 
 def abrir_navegador(
@@ -60,6 +60,7 @@ TOOL_ABRIR_NAVEGADOR = Tool(
         Parametro("config", requerido=False, tipo=dict, descripcion="Configuracion de permisos del sistema."),
     ),
     ejecutor=abrir_navegador,
+    politica=POLITICA_AUTO,
 )
 
 TOOLS = (TOOL_ABRIR_NAVEGADOR,)

@@ -14,7 +14,7 @@ from core.handlers.configuracion import procesar_configuracion
 from core.handlers.contratos import ResultadoCerebro
 from core.handlers.ia import resolver_ia
 from core.handlers.intencion import resolver_intencion
-from core.ejecutor import EjecutorPlan
+from core.ejecutor import ESTADO_REQUIERE_CONFIRMACION, EjecutorPlan
 from core.tools import ejecutar_herramienta
 from core.handlers.memoria import (
     confirmar_accion_memoria,
@@ -40,6 +40,7 @@ from core.handlers.tareas import (
     puede_manejar_tareas,
     procesar_tareas,
 )
+from core.continuacion import CONTINUADOR, pasos_desde, serializar_pasos
 from core.interprete import analizar
 from core.intenciones import detectar_intencion
 from core.planificador import planificar
@@ -72,6 +73,8 @@ def procesar(
     notas = notas if notas is not None else []
     alias = alias if alias is not None else {}
     recordatorios = recordatorios if recordatorios is not None else []
+
+    CONTINUADOR.marcar_nuevo_comando()
 
     intencion = detectar_intencion(texto)
 
@@ -186,6 +189,30 @@ def _resolver_planificacion(
         if paso_ejecucion.respuesta
     )
     resultado.respuesta = resultado.respuesta_compuesta()
+
+    if ejecucion.requiere_confirmacion and ejecucion.solicitud is not None:
+        pendiente = ejecucion.paso_pendiente
+        solicitud = dict(ejecucion.solicitud)
+        solicitud["texto"] = texto
+
+        if pendiente is not None:
+            restantes = pasos_desde(plan, pendiente.paso.orden)
+            solicitud["pasos_restantes"] = serializar_pasos(restantes)
+            solicitud["respuestas_previas"] = [
+                paso_resultado.respuesta
+                for paso_resultado in ejecucion.resultados
+                if paso_resultado.respuesta
+                and paso_resultado.estado != ESTADO_REQUIERE_CONFIRMACION
+            ]
+
+        solicitud = CONTINUADOR.registrar_solicitud(solicitud)
+        resultado.solicitud = solicitud
+        resultado.solicitud_pendiente = solicitud
+        resultado.respuesta = solicitud.get(
+            "texto_confirmacion",
+            resultado.respuesta,
+        )
+
     resultado.debug = {
         "plan": {
             "reconocido": plan.reconocido,
@@ -198,6 +225,12 @@ def _resolver_planificacion(
             "fallidos": len(ejecucion.pasos_fallidos()),
             "bloqueados": len(ejecucion.pasos_bloqueados()),
             "omitidos": len(ejecucion.pasos_omitidos()),
+            "requiere_confirmacion": ejecucion.requiere_confirmacion,
+            "paso_pendiente": (
+                ejecucion.paso_pendiente.paso.orden
+                if ejecucion.paso_pendiente is not None
+                else None
+            ),
         },
     }
     return True
