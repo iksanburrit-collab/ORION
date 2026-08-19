@@ -139,6 +139,84 @@ class IntencionesTests(unittest.TestCase):
             with self.subTest(texto=texto):
                 self.assert_intencion(texto, "desconocido")
 
+    def test_fecha_y_hora_se_detectan_con_lenguaje_natural(self):
+        casos = {
+            "fecha": "fecha",
+            "qué fecha es": "fecha",
+            "qué fecha es hoy": "fecha",
+            "cuál es la fecha de hoy": "fecha",
+            "qué día es hoy": "fecha",
+            "qué día estamos": "fecha",
+            "dime la fecha": "fecha",
+            "qué hora es": "hora",
+            "dime la hora": "hora",
+            "qué hora tenemos": "hora",
+        }
+        for texto, esperada in casos.items():
+            with self.subTest(texto=texto):
+                self.assert_intencion(texto, esperada)
+
+    def test_variantes_naturales_de_fecha_y_hora(self):
+        casos = {
+            "cuál es la fecha": "fecha",
+            "cual es la fecha": "fecha",
+            "cuál es el día de hoy": "fecha",
+            "me dices la fecha": "fecha",
+            "qué día es": "fecha",
+            "que dia es": "fecha",
+            "sabes qué día es hoy": "fecha",
+            "me dices la hora": "hora",
+            "dime qué hora es": "hora",
+            "qué hora es ahora": "hora",
+            "qué hora tenemos ahora": "hora",
+            "sabes qué hora es": "hora",
+            "cuál es la hora": "hora",
+        }
+        for texto, esperada in casos.items():
+            with self.subTest(texto=texto):
+                self.assert_intencion(texto, esperada)
+
+    def test_normalizacion_de_voz_aplica_a_todas_las_intenciones(self):
+        casos = {
+            "  ¿Qué   hora  es?  ": "hora",
+            "¿Me dices la hora?": "hora",
+            "Me dices la hora.": "hora",
+            "¿CUÁL ES LA FECHA?": "fecha",
+            "qué fecha es hoy.": "fecha",
+            "HOLA": "saludo",
+            "¿Ayuda?": "ayuda",
+            "2 + 2.": "calc",
+        }
+        for texto, esperada in casos.items():
+            with self.subTest(texto=texto):
+                self.assert_intencion(texto, esperada)
+
+    def test_fecha_y_hora_toleran_puntuacion_de_whisper(self):
+        casos = {
+            "¿qué fecha es hoy?": "fecha",
+            "¡Qué fecha es hoy!": "fecha",
+            "qué fecha es hoy.": "fecha",
+            "¿Qué fecha es hoy?": "fecha",
+            "¿qué hora es?": "hora",
+            "¡Qué hora es!": "hora",
+            "dime la hora.": "hora",
+            "¿Qué día es hoy?": "fecha",
+            "cuál es la fecha de hoy?": "fecha",
+        }
+        for texto, esperada in casos.items():
+            with self.subTest(texto=texto):
+                self.assert_intencion(texto, esperada)
+
+    def test_fecha_y_hora_no_disparan_falsos_positivos(self):
+        for texto in (
+            "que fecha tiene tu cumpleaños",
+            "a que hora empieza la pelicula",
+            "cuentame de tu dia",
+            "que tan dia es hoy",
+        ):
+            with self.subTest(texto=texto):
+                self.assert_intencion(texto, "desconocido")
+
 
 if __name__ == "__main__":
     unittest.main()

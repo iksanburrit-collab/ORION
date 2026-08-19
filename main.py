@@ -9,6 +9,12 @@ from core.continuacion import continuar_solicitud, es_afirmacion, es_negacion
 from core.memoria import guardar_memoria, inicializar_memoria
 from servicios.calendario.legacy import migrar_recordatorios_legacy
 from servicios.notas import RepositorioNotas
+from servicios.voz import (
+    es_transcripcion_inutil,
+    hablar,
+    precargar_motor,
+    transcribir_audio,
+)
 from utilidades.archivos import asegurar_json, cargar_json, guardar_json
 from utilidades.configuracion import cargar_configuracion
 from utilidades.entorno import cargar_entorno
@@ -107,6 +113,7 @@ def _atender_solicitudes(
 
     if atendidas and resultado.respuesta:
         print(resultado.respuesta)
+        hablar(resultado.respuesta, config=config)
 
     return atendidas
 
@@ -121,6 +128,7 @@ def _atender_confirmacion_politica(
             "Se requiere confirmación para ejecutar la acción. ¿Deseas continuar? [s/n]",
         )
         print(texto)
+        hablar(texto, config=config)
         valor = input("> ")
 
         if es_afirmacion(valor):
@@ -137,8 +145,14 @@ def _atender_solicitud_legacy(
     memoria: dict[str, Any],
     config: dict[str, Any],
 ) -> Any:
-    if isinstance(solicitud, dict):
-        print(solicitud.get("texto_confirmacion", "Confirma la accion:"))
+    texto_confirmacion = (
+        solicitud.get("texto_confirmacion", "Confirma la accion:")
+        if isinstance(solicitud, dict)
+        else ""
+    )
+    if texto_confirmacion:
+        print(texto_confirmacion)
+        hablar(texto_confirmacion, config=config)
     valor = input("> ")
     return completar_solicitud(solicitud, valor, memoria, config)
 
@@ -160,6 +174,12 @@ def ejecutar() -> None:
     alias = estado["alias"]
     config = estado["config"]
 
+    # Precarga el modelo STT (si la voz esta activada) para que la
+    # primera peticion por voz no pague la carga del modelo. Es una
+    # operacion silenciosa: si falla o falta la extra de voz, ORION
+    # sigue funcionando por teclado.
+    precargar_motor(config)
+
     def guardar_notas() -> None:
         repositorio_notas.guardar()
 
@@ -171,7 +191,16 @@ def ejecutar() -> None:
 
     while True:
         try:
-            comando = normalizar_comando(input("\nORION> "))
+            entrada = transcribir_audio(config=config)
+            if not entrada:
+                entrada = input("\nORION> ")
+            else:
+                # Puerta de confianza de la voz: una transcripcion vacia,
+                # una muletilla ("claro", "vale", "mmm", "...") o un
+                # fragmento ruidoso no debe llegar al proveedor de IA.
+                if es_transcripcion_inutil(entrada):
+                    continue
+            comando = normalizar_comando(entrada)
             resultado = procesar(
                 comando,
                 memoria,
@@ -190,6 +219,7 @@ def ejecutar() -> None:
             if not _atender_solicitudes(resultado, memoria, config):
                 if resultado.respuesta:
                     print(resultado.respuesta)
+                    hablar(resultado.respuesta, config=config)
 
             if resultado.salir:
                 break

@@ -404,6 +404,24 @@ class ProveedorHibridoTests(unittest.TestCase):
         self.assertEqual(resultado.accion, "respuesta_ia_groq")
         proveedor.assert_called_once()
 
+    @mock.patch("core.handlers.ia.generar_respuesta")
+    def test_fecha_y_hora_se_resuelven_localmente_sin_ia(self, proveedor):
+        casos = {
+            "¿qué fecha es hoy?": "mostrar_fecha",
+            "qué fecha es hoy": "mostrar_fecha",
+            "qué día es hoy": "mostrar_fecha",
+            "cuál es la fecha de hoy": "mostrar_fecha",
+            "¿qué hora es?": "mostrar_hora",
+            "qué hora tenemos": "mostrar_hora",
+        }
+
+        for texto, accion in casos.items():
+            with self.subTest(texto=texto):
+                resultado = procesar(texto, self.memoria, self.config)
+                self.assertEqual(resultado.accion, accion, texto)
+
+        proveedor.assert_not_called()
+
     def test_version_memoria_sigue_funcionando(self):
         self.assertEqual(VERSION_MEMORIA, 6)
         memoria = inicializar_memoria({"sistema": {"version_memoria": 5}})

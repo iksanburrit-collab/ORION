@@ -17,6 +17,10 @@ dev = [
     "pytest-cov>=5.0",
     "ruff>=0.6",
 ]
+voz = [
+    "sounddevice>=0.5",
+    "faster-whisper>=1.1",
+]
 
 [project.scripts]
 orion = "main:ejecutar"

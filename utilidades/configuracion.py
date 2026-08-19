@@ -31,6 +31,23 @@ CONFIG_PREDETERMINADA: dict[str, Any] = {
     "aplicaciones": {
         "permitidas": [],
     },
+    "voz": {
+        "activada": False,
+        "stt": {
+            "activada": False,
+            "motor": "faster-whisper",
+            "modelo": "tiny",
+            "idioma": "es",
+            "max_duracion_segundos": 6,
+            "silencio_segundos": 0.6,
+        },
+        "tts": {
+            "activada": False,
+            "motor": "espeak",
+            "voz": "es",
+            "velocidad": 150,
+        },
+    },
     "ia": {
         "activada": True,
         "router": {

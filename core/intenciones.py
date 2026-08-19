@@ -43,23 +43,83 @@ _HORA = frozenset({
     "hora",
     "que hora es",
     "qué hora es",
+    "que hora tenemos",
+    "qué hora tenemos",
     "dime la hora",
     "hora actual",
+    "me dices la hora",
+    "dime qué hora es",
+    "dime que hora es",
+    "qué hora es ahora",
+    "que hora es ahora",
+    "qué hora tenemos ahora",
+    "que hora tenemos ahora",
+    "sabes qué hora es",
+    "sabes que hora es",
+    "cuál es la hora",
+    "cual es la hora",
 })
 
 _FECHA = frozenset({
     "fecha",
     "que fecha es",
     "qué fecha es",
+    "que fecha es hoy",
+    "qué fecha es hoy",
+    "cual es la fecha de hoy",
+    "cuál es la fecha de hoy",
+    "cual es la fecha",
+    "cuál es la fecha",
+    "cual es el día de hoy",
+    "cual es el dia de hoy",
+    "cuál es el día de hoy",
+    "cuál es el dia de hoy",
     "que dia es hoy",
     "qué dia es hoy",
     "que día es hoy",
     "qué día es hoy",
+    "que dia es",
+    "qué dia es",
+    "que día es",
+    "qué día es",
+    "que dia estamos",
+    "qué dia estamos",
+    "que día estamos",
+    "qué día estamos",
+    "en que dia estamos hoy",
+    "en que día estamos hoy",
+    "en qué dia estamos hoy",
+    "en qué día estamos hoy",
     "dime la fecha",
+    "me dices la fecha",
     "fecha actual",
+    "sabes qué día es hoy",
+    "sabes que dia es hoy",
     "en que fecha estamos",
     "en qué fecha estamos",
 })
+
+# Puntuacion que Whisper anade con frecuencia a la transcripcion
+# ("¡Qué fecha es hoy!", "¿Qué hora es?") y que no debe romper la
+# deteccion de intenciones de fecha/hora.
+_PUNTUACION_VOZ = "¿¡?!.,;:"
+
+_ELIPSIS = "…"
+
+
+def _normalizar_voz(texto: str) -> str:
+    """Normaliza una transcripcion para la deteccion local.
+
+    Aplica, en orden: minusculas, quitar puntuacion de voz y espacios de
+    los bordes (signos de pregunta/exclamacion, puntos, comas, puntos
+    suspensivos) y colapsar espacios duplicados. Whisper suele anadir
+    "¿...?" o "..." que no deben romper la deteccion.
+    """
+    t = texto.lower()
+    t = t.strip()
+    t = t.strip(_PUNTUACION_VOZ + _ELIPSIS)
+    t = t.strip()
+    return " ".join(t.split())
 
 
 def _es_calculo(texto: str) -> bool:
@@ -87,8 +147,7 @@ def _es_calculo(texto: str) -> bool:
 
 def detectar_intencion(t):
 
-    t = t.lower()
-    t = " ".join(t.split())
+    t = _normalizar_voz(t)
 
     if _ENLACE_O_RUTA.match(t):
         return "desconocido"
