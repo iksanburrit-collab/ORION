@@ -5,6 +5,10 @@ __pycache__/
 .ruff_cache/
 htmlcov/
 
+# Archivos accidentales vacios rastreados en fases antiguas
+EjecutorAccionesPC.
+EjecutorPlan
+
 # Entorno virtual
 .env
 .env.*

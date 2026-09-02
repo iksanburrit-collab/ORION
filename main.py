@@ -15,6 +15,8 @@ from servicios.voz import (
     precargar_motor,
     transcribir_audio,
 )
+from servicios.voz.listener import bucle_escucha
+from servicios.voz.wakeword import precargar_wakeword, wakeword_activada
 from utilidades.archivos import asegurar_json, cargar_json, guardar_json
 from utilidades.configuracion import cargar_configuracion
 from utilidades.entorno import cargar_entorno
@@ -180,6 +182,11 @@ def ejecutar() -> None:
     # sigue funcionando por teclado.
     precargar_motor(config)
 
+    # La wake word solo se usa si esta activada Y el modelo cargo. Si
+    # falta openwakeword o el modelo falla, ORION no se sale en
+    # silencio: cae al flujo normal (transcripcion por teclado).
+    usar_wakeword = wakeword_activada(config) and precargar_wakeword(config)
+
     def guardar_notas() -> None:
         repositorio_notas.guardar()
 
@@ -189,8 +196,40 @@ def ejecutar() -> None:
     def guardar_config() -> None:
         guardar_json(ruta_configuracion(), config)
 
+    def procesar_comando(entrada: str) -> bool:
+        """Procesa un comando (teclado o voz) y devuelve False si se sale."""
+        comando = normalizar_comando(entrada)
+        resultado = procesar(
+            comando,
+            memoria,
+            config,
+            notas=notas,
+            alias=alias,
+            recordatorios=recordatorios,
+            guardar_notas=guardar_notas,
+            guardar_alias=guardar_alias,
+            guardar_config=guardar_config,
+            archivo_notas=ruta_notas(),
+        )
+
+        mostrar_debug_ia(resultado.debug)
+
+        if not _atender_solicitudes(resultado, memoria, config) and resultado.respuesta:
+            print(resultado.respuesta)
+            hablar(resultado.respuesta, config=config)
+
+        return not resultado.salir
+
     while True:
         try:
+            if usar_wakeword:
+                # La wake word sustituye el prompt: no hay input() de
+                # espera porque el bucle escucha la frase de activacion.
+                # El callback devuelve False cuando el comando fue
+                # "salir" y el bucle se cierra aqui.
+                bucle_escucha(config, al_recibir_texto=procesar_comando)
+                break
+
             entrada = transcribir_audio(config=config)
             if not entrada:
                 entrada = input("\nORION> ")
@@ -200,28 +239,7 @@ def ejecutar() -> None:
                 # fragmento ruidoso no debe llegar al proveedor de IA.
                 if es_transcripcion_inutil(entrada):
                     continue
-            comando = normalizar_comando(entrada)
-            resultado = procesar(
-                comando,
-                memoria,
-                config,
-                notas=notas,
-                alias=alias,
-                recordatorios=recordatorios,
-                guardar_notas=guardar_notas,
-                guardar_alias=guardar_alias,
-                guardar_config=guardar_config,
-                archivo_notas=ruta_notas(),
-            )
-
-            mostrar_debug_ia(resultado.debug)
-
-            if not _atender_solicitudes(resultado, memoria, config):
-                if resultado.respuesta:
-                    print(resultado.respuesta)
-                    hablar(resultado.respuesta, config=config)
-
-            if resultado.salir:
+            if not procesar_comando(entrada):
                 break
         except (EOFError, KeyboardInterrupt):
             print("\nApagando ORION 👋")

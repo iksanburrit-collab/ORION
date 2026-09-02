@@ -331,4 +331,3 @@ def _formatear_memorias(
         f"{memoria.get('tipo', 'memoria')}: {memoria.get('contenido', '')}"
         for memoria in memorias
     )
-    eliminar_memoria,

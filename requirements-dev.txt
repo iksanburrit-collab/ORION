@@ -1,5 +1,0 @@
-# Dependencias de desarrollo de ORION (pytest, coverage, pytest-cov y ruff),
-# definidas como el extra "dev" en pyproject.toml.
-#
-# Incluye también la instalación editable de ORION.
--e .[dev]

@@ -383,6 +383,18 @@ El repositorio únicamente incluye un archivo de ejemplo:
 
 ---
 
+# 🔒 Privacidad de IA
+
+Dependiendo de la configuración, tus solicitudes pueden procesarse localmente o enviarse a un proveedor externo:
+
+* **Groq** implica enviar la solicitud y el contexto correspondiente a un proveedor externo (en la nube). No asumas que esa información permanece en tu equipo.
+* **Ollama** funciona íntegramente de forma local: el modelo se ejecuta en tu máquina y el contenido no sale de ella.
+* **Con la IA desactivada** (`ia.activada: false`), ORION no envía información a ningún proveedor de IA: solo se ejecutan las tareas locales (notas, recordatorios, memoria, alias, control de aplicaciones, etc.).
+
+ORION intenta minimizar el envío de datos (solo se transmite lo necesario para responder a la solicitud), pero **no puede prometer privacidad absoluta** cuando se usa un proveedor externo como Groq. Si tu información es sensible, ejecuta ORION con Ollama o con la IA desactivada.
+
+---
+
 # 🤝 Contribuciones
 
 Toda sugerencia, mejora o corrección es bienvenida.

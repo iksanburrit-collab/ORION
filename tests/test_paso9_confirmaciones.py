@@ -232,9 +232,10 @@ class ContinuarSolicitudTests(unittest.TestCase):
         from main import _atender_confirmacion_politica
 
         cont, resultado = _procesar("busca gatos", self.overrides)
-        with mock.patch("core.continuacion.CONTINUADOR", cont):
-            with mock.patch("builtins.input", side_effect=["bailar", "quizas", "si"]):
-                continuado = _atender_confirmacion_politica(resultado.solicitud, _CONFIG)
+        with mock.patch("core.continuacion.CONTINUADOR", cont), mock.patch(
+            "builtins.input", side_effect=["bailar", "quizas", "si"]
+        ):
+            continuado = _atender_confirmacion_politica(resultado.solicitud, _CONFIG)
 
         self.assertEqual(len(self.nav), 1)
         self.assertEqual(continuado.accion, "ejecutar_plan")

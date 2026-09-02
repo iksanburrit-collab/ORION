@@ -19,10 +19,13 @@ class RutasDatosTests(unittest.TestCase):
             self.assertEqual(raiz_proyecto(), Path(temporal).resolve())
 
     def test_base_de_pruebas_tiene_prioridad_sobre_el_entorno(self):
-        with tempfile.TemporaryDirectory() as temporal, tempfile.TemporaryDirectory() as pruebas:
-            with mock.patch.dict(os.environ, {"ORION_DATA_DIR": temporal}):
-                configurar_base_datos(pruebas)
-                self.assertEqual(raiz_proyecto(), Path(pruebas).resolve())
+        with (
+            tempfile.TemporaryDirectory() as temporal,
+            tempfile.TemporaryDirectory() as pruebas,
+            mock.patch.dict(os.environ, {"ORION_DATA_DIR": temporal}),
+        ):
+            configurar_base_datos(pruebas)
+            self.assertEqual(raiz_proyecto(), Path(pruebas).resolve())
 
     def test_ruta_por_defecto_usa_el_directorio_de_la_plataforma(self):
         with tempfile.TemporaryDirectory() as temporal:

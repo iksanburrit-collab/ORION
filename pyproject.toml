@@ -20,6 +20,7 @@ dev = [
 voz = [
     "sounddevice>=0.5",
     "faster-whisper>=1.1",
+    "openwakeword==0.4.0",
 ]
 
 [project.scripts]
@@ -51,4 +52,25 @@ target-version = "py310"
 extend-exclude = [".venv"]
 
 [tool.ruff.lint]
-select = ["F"]
+select = ["F", "B", "S", "SIM"]
+
+[tool.ruff.lint.per-file-ignores]
+# Fuera de alcance: el núcleo y el planificador no se modifican en este sprint.
+# SIM103: se prefiere el estilo actual con retornos tempranos.
+# S311: random para variedad de respuestas, no uso criptográfico.
+"core/cerebro.py" = ["SIM103", "S311"]
+"core/planificador/resolucion.py" = ["SIM103"]
+# S311: random para variedad de respuestas, no uso criptográfico.
+"core/handlers/intencion.py" = ["S311"]
+"core/personalidad.py" = ["S311"]
+# S310: urlopen a endpoints fijos de los proveedores (Groq https / Ollama local).
+"ia/groq.py" = ["S310"]
+"ia/ollama.py" = ["S310"]
+# Fuera de alcance: el proveedor IA no se modifica en este sprint (SIM103).
+"ia/proveedor.py" = ["SIM103"]
+# S603/S607: subprocess intencional para lanzar aplicaciones del sistema.
+"servicios/sistema/acciones_pc.py" = ["S603", "S607"]
+# S603: subprocess intencional de espeak para la síntesis de voz.
+"servicios/voz/tts.py" = ["S603"]
+# S108: cadena de prueba que representa una ruta, no uso real de /tmp.
+"tests/test_intenciones.py" = ["S108"]

@@ -47,6 +47,15 @@ CONFIG_PREDETERMINADA: dict[str, Any] = {
             "voz": "es",
             "velocidad": 150,
         },
+        "wakeword": {
+            "activada": False,
+            "motor": "openwakeword",
+            "modelo": "hey_jarvis",
+            "umbral": 0.5,
+            "cooldown_segundos": 2.0,
+            "max_duracion_segundos": 6,
+            "silencio_segundos": 0.6,
+        },
     },
     "ia": {
         "activada": True,
